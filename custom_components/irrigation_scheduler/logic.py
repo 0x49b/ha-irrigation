@@ -115,3 +115,8 @@ def assess_rain(
         and max_prob >= threshold_probability
     )
     return RainAssessment(round(amount, 2), max_prob, skip)
+
+
+def meter_consumption(start_l: float, end_l: float) -> float:
+    """Difference of two meter readings; a lower end value means the meter was reset."""
+    return end_l - start_l if end_l >= start_l else end_l

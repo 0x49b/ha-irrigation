@@ -32,6 +32,12 @@ const SOURCE = { auto: "Automatik", manual: "Manuell" };
 
 const CHART_DAYS = 30;
 
+// Units the backend understands for water tracking (volume meter or flow rate).
+const WATER_UNITS = ["L", "mL", "m³", "gal", "ft³", "CCF", "MCF", "fl. oz.",
+  "L/min", "L/h", "L/s", "mL/s", "m³/h", "m³/min", "m³/s", "gal/min", "gal/h", "gal/d", "ft³/min"];
+
+const fmtLiters = (v) => (v === null || v === undefined ? "–" : `${fmtNum(v, v < 100 ? 1 : 0)} L`);
+
 const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -367,7 +373,8 @@ class IrrigationSchedulerPanel extends HTMLElement {
         <dt>Nächster Lauf</dt><dd>${
           z.next_run ? `${fmtDateTime(z.next_run)}, ${fmtNum(z.next_run_duration)} min` : "keiner geplant"
         }${z.auto_enabled ? "" : " (Automatik aus)"}</dd>
-        <dt>Letzter Lauf</dt><dd>${fmtDateTime(z.last_run)}</dd>
+        <dt>Letzter Lauf</dt><dd>${fmtDateTime(z.last_run)}${z.water_entity ? `, ${fmtLiters(z.last_water_l)}` : ""}</dd>
+        ${z.water_entity ? `<dt>Wasser gesamt</dt><dd>${fmtLiters(z.water_total_l)}</dd>` : ""}
         <dt>Regen (${fmtNum(z.options.lookahead_hours)} h)</dt><dd>${rainText}${z.rain_check_enabled ? "" : " (Prüfung aus)"}</dd>
       </dl>`;
   }
@@ -392,11 +399,14 @@ class IrrigationSchedulerPanel extends HTMLElement {
       </div>`;
   }
 
-  _entityOptions(domains, selected) {
+  _entityOptions(domains, selected, { filter = () => true, empty = null } = {}) {
     const states = this._hass?.states || {};
-    const ids = Object.keys(states).filter((id) => domains.includes(id.split(".")[0])).sort();
+    const ids = Object.keys(states)
+      .filter((id) => domains.includes(id.split(".")[0]) && filter(states[id]))
+      .sort();
     if (selected && !ids.includes(selected)) ids.unshift(selected);
-    return ids
+    const emptyOption = empty === null ? "" : `<option value="" ${selected ? "" : "selected"}>${esc(empty)}</option>`;
+    return emptyOption + ids
       .map((id) => {
         const name = states[id]?.attributes?.friendly_name;
         return `<option value="${esc(id)}" ${id === selected ? "selected" : ""}>${esc(name ? `${name} (${id})` : id)}</option>`;
@@ -418,6 +428,11 @@ class IrrigationSchedulerPanel extends HTMLElement {
         <label>Regenmenge ab</label>${num("rain_threshold_mm", 0, 100, 0.1, "mm (0 = aus)")}
         <label>Regenwahrsch. ab</label>${num("rain_probability", 0, 100, 1, "% (0 = aus)")}
         <label>Vorhersagefenster</label>${num("lookahead_hours", 1, 72, 1, "h")}
+        <label>Wassersensor</label>
+        <select data-option="water_entity">${this._entityOptions(["sensor"], o.water_entity, {
+          filter: (st) => WATER_UNITS.includes(st?.attributes?.unit_of_measurement),
+          empty: "– keiner –",
+        })}</select>
       </div>
       <div class="row" id="settings-buttons"></div>`;
     this._renderSettingsButtons();
@@ -463,6 +478,8 @@ class IrrigationSchedulerPanel extends HTMLElement {
     const since = (days) => now.getTime() - days * 86400000;
     const done = history.filter((h) => h.actual_min > 0);
     const sum = (list) => list.reduce((acc, h) => acc + (h.actual_min || 0), 0);
+    const water = (list) => list.reduce((acc, h) => acc + (h.water_l || 0), 0);
+    const showWater = !!z.water_entity || history.some((h) => h.water_l != null);
     const in7 = done.filter((h) => new Date(h.start).getTime() >= since(7));
     const in30 = done.filter((h) => new Date(h.start).getTime() >= since(30));
     const skipped30 = history.filter((h) => h.result === "skipped_rain" && new Date(h.start).getTime() >= since(30));
@@ -473,6 +490,9 @@ class IrrigationSchedulerPanel extends HTMLElement {
         <div class="tile"><div class="v">${fmtNum(sum(in30))} min</div><div class="l">letzte 30 Tage</div></div>
         <div class="tile"><div class="v">${in30.length}</div><div class="l">Läufe (30 Tage)</div></div>
         <div class="tile"><div class="v">${skipped30.length}</div><div class="l">wegen Regen übersprungen (30 Tage)</div></div>
+        ${showWater ? `
+        <div class="tile"><div class="v">${fmtLiters(water(in7))}</div><div class="l">Wasser letzte 7 Tage</div></div>
+        <div class="tile"><div class="v">${fmtLiters(water(in30))}</div><div class="l">Wasser letzte 30 Tage</div></div>` : ""}
       </div>`;
 
     const rows = history
@@ -491,6 +511,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
           <td>${fmtTime(h.start)}</td>
           <td class="hide-narrow">${running ? "–" : fmtTime(h.end)}</td>
           <td class="num">${dur}</td>
+          ${showWater ? `<td class="num">${h.water_l == null ? "–" : fmtLiters(h.water_l)}</td>` : ""}
           <td class="hide-narrow">${esc(SOURCE[h.source] || h.source)}</td>
           <td>${esc(result)}</td>
           <td class="hide-narrow">${rain}</td>
@@ -500,25 +521,25 @@ class IrrigationSchedulerPanel extends HTMLElement {
 
     const table = history.length
       ? `<div class="scroll"><table>
-          <thead><tr><th>Datum</th><th>Start</th><th class="hide-narrow">Ende</th><th class="num">Minuten</th>
+          <thead><tr><th>Datum</th><th>Start</th><th class="hide-narrow">Ende</th><th class="num">Minuten</th>${showWater ? `<th class="num">Wasser</th>` : ""}
           <th class="hide-narrow">Quelle</th><th>Ergebnis</th><th class="hide-narrow">Regen</th></tr></thead>
           <tbody>${rows}</tbody></table></div>`
       : `<div class="empty">Noch keine Läufe aufgezeichnet.</div>`;
 
     const el = this.shadowRoot.getElementById("history");
     el.innerHTML = `${tiles}<div class="chart" id="chart"></div>${table}`;
-    this._renderChart(el.querySelector("#chart"), history);
+    this._renderChart(el.querySelector("#chart"), history, showWater);
   }
 
   // Minutes watered per day, last CHART_DAYS days. Single series: no legend, hover tooltip per day.
-  _renderChart(container, history) {
+  _renderChart(container, history, showWater) {
     const days = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     for (let i = CHART_DAYS - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-      days.push({ key: dayKey(d), date: d, minutes: 0, runs: 0, skipped: 0 });
+      days.push({ key: dayKey(d), date: d, minutes: 0, runs: 0, skipped: 0, liters: 0 });
     }
     const byKey = Object.fromEntries(days.map((d) => [d.key, d]));
     for (const h of history) {
@@ -527,6 +548,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
       if (h.actual_min > 0) {
         d.minutes += h.actual_min;
         d.runs += 1;
+        d.liters += h.water_l || 0;
       } else if (h.result === "skipped_rain") {
         d.skipped += 1;
       }
@@ -587,6 +609,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
       svg.querySelector(`.bar[data-i="${i}"]`)?.classList.add("hover");
       tip.innerHTML = `<strong>${d.date.toLocaleDateString("de", { weekday: "short", day: "2-digit", month: "2-digit" })}</strong><br>
         ${fmtNum(d.minutes, 1)} min in ${d.runs} ${d.runs === 1 ? "Lauf" : "Läufen"}
+        ${showWater && d.runs ? `<br>${fmtLiters(d.liters)}` : ""}
         ${d.skipped ? `<br><span class="muted">${d.skipped}× wegen Regen übersprungen</span>` : ""}`;
       const box = container.getBoundingClientRect();
       const svgBox = svg.getBoundingClientRect();

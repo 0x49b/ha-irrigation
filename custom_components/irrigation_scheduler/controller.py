@@ -26,6 +26,7 @@ from .const import (
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
+    CONF_WATER_ENTITY,
     CONF_WEATHER_ENTITY,
     DEFAULT_DURATION_MIN,
     DEFAULT_WINDOW_END,
@@ -48,6 +49,10 @@ from .const import (
     WEEKDAYS,
 )
 from .logic import RainAssessment, assess_rain, compute_next_run
+from .water import WaterTracker
+
+# Meters often report with a delay; re-read this long after the valve closed.
+WATER_SETTLE_SECONDS = 90
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,6 +84,12 @@ class IrrigationController:
         self.rain: RainAssessment | None = None
         self.history: list[dict[str, Any]] = []
         self._current: dict[str, Any] | None = None
+        self.water_total_l = 0.0
+        self.last_water_l: float | None = None
+        self._water = (
+            WaterTracker(hass, water) if (water := self.config.get(CONF_WATER_ENTITY)) else None
+        )
+        self._unsub_settle: list[CALLBACK_TYPE] = []
 
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
@@ -98,6 +109,10 @@ class IrrigationController:
     @property
     def weather_entity(self) -> str:
         return self.config[CONF_WEATHER_ENTITY]
+
+    @property
+    def water_entity(self) -> str | None:
+        return self._water.entity_id if self._water else None
 
     @property
     def is_running(self) -> bool:
@@ -147,6 +162,9 @@ class IrrigationController:
                 for day in WEEKDAYS
             ],
             "options": {key: self.config.get(key) for key in OPTION_KEYS},
+            "water_entity": self.water_entity,
+            "water_total_l": self.water_total_l if self._water else None,
+            "last_water_l": self.last_water_l,
             "history": self.history,
         }
 
@@ -171,8 +189,12 @@ class IrrigationController:
         if last_run := stored.get("last_run"):
             self.last_run = dt_util.parse_datetime(last_run)
         self.history = stored.get("history") or []
+        self.water_total_l = stored.get("water_total_l") or 0.0
+        self.last_water_l = stored.get("last_water_l")
         if self.history and self.history[-1].get("end") is None:
             self._current = self.history[-1]
+            if self._water:
+                self._water.start(self._current)
         if run_end := stored.get("run_end"):
             end = dt_util.parse_datetime(run_end)
             if end and end > dt_util.utcnow():
@@ -204,6 +226,11 @@ class IrrigationController:
             if unsub:
                 unsub()
         self._unsub_schedule = self._unsub_finish = self._unsub_rain = None
+        for unsub in self._unsub_settle:
+            unsub()
+        self._unsub_settle.clear()
+        if self._water:
+            self._water.cancel()
         self._started = False
 
     # ------------------------------------------------------------- schedule
@@ -299,6 +326,8 @@ class IrrigationController:
             return
 
         self._current = self._add_history(now, source, None, duration_min)
+        if self._water:
+            self._water.start(self._current)
         self.last_run = now
         self.run_end = now + timedelta(minutes=duration_min)
         self.status = STATUS_WATERING
@@ -378,6 +407,33 @@ class IrrigationController:
         entry["end"] = end.isoformat()
         entry["result"] = result
         entry["actual_min"] = round(max((end - start).total_seconds(), 0) / 60, 1)
+        if self._water:
+            self._water.stop()
+            self._book_water(entry)
+            if "water_start" in entry:
+                self._schedule_meter_settle(entry)
+
+    def _book_water(self, entry: dict[str, Any]) -> None:
+        """Add the (possibly corrected) amount of `entry` to the totals."""
+        if (water := entry.get("water_l")) is None:
+            return
+        self.water_total_l = round(
+            self.water_total_l + water - entry.get("water_booked_l", 0.0), 2
+        )
+        entry["water_booked_l"] = water
+        self.last_water_l = water
+
+    def _schedule_meter_settle(self, entry: dict[str, Any]) -> None:
+        async def _settle(_now: datetime) -> None:
+            self._unsub_settle.remove(unsub)
+            if self._water:
+                self._water.update_meter(entry)
+                self._book_water(entry)
+                await self._async_save()
+                self.async_notify()
+
+        unsub = async_call_later(self.hass, WATER_SETTLE_SECONDS, _settle)
+        self._unsub_settle.append(unsub)
 
     async def _async_save(self) -> None:
         await self._store.async_save(
@@ -385,6 +441,8 @@ class IrrigationController:
                 "last_run": self.last_run.isoformat() if self.last_run else None,
                 "run_end": self.run_end.isoformat() if self.run_end else None,
                 "history": self.history,
+                "water_total_l": self.water_total_l,
+                "last_water_l": self.last_water_l,
             }
         )
 

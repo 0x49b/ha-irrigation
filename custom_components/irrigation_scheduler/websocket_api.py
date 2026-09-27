@@ -18,6 +18,7 @@ from .const import (
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
+    CONF_WATER_ENTITY,
     CONF_WEATHER_ENTITY,
     DOMAIN,
     MAX_DURATION_MIN,
@@ -34,6 +35,7 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_RAIN_THRESHOLD_MM): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
         vol.Optional(CONF_RAIN_PROBABILITY): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
         vol.Optional(CONF_LOOKAHEAD_HOURS): vol.All(vol.Coerce(float), vol.Range(min=1, max=72)),
+        vol.Optional(CONF_WATER_ENTITY): vol.Any(None, "", cv.entity_domain("sensor")),
     }
 )
 
@@ -159,9 +161,10 @@ def ws_update_options(
     if not (controller := _get_controller(hass, connection, msg)):
         return
     entry = controller.entry
-    hass.config_entries.async_update_entry(
-        entry, options={**entry.data, **entry.options, **msg["options"]}
-    )
+    options = {**entry.data, **entry.options, **msg["options"]}
+    if CONF_WATER_ENTITY in options:
+        options[CONF_WATER_ENTITY] = options[CONF_WATER_ENTITY] or None
+    hass.config_entries.async_update_entry(entry, options=options)
     connection.send_result(msg["id"])
 
 

@@ -6,6 +6,7 @@ DOMAIN = "irrigation_scheduler"
 
 CONF_VALVE_ENTITY = "valve_entity"
 CONF_WEATHER_ENTITY = "weather_entity"
+CONF_WATER_ENTITY = "water_entity"
 CONF_INTERVAL_HOURS = "interval_hours"
 CONF_RAIN_THRESHOLD_MM = "rain_threshold_mm"
 CONF_RAIN_PROBABILITY = "rain_probability"
@@ -58,4 +59,5 @@ OPTION_KEYS = (
     CONF_RAIN_THRESHOLD_MM,
     CONF_RAIN_PROBABILITY,
     CONF_LOOKAHEAD_HOURS,
+    CONF_WATER_ENTITY,
 )
