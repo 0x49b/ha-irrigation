@@ -49,7 +49,7 @@ SENSORS = (
         key="today_duration",
         native_unit_of_measurement=UnitOfTime.MINUTES,
         icon="mdi:timer-sand",
-        value_fn=lambda c: c.duration_for(c.next_run) if c.next_run else None,
+        value_fn=lambda c: c.next_run_duration,
     ),
     IrrigationSensorDescription(
         key="rain_forecast",

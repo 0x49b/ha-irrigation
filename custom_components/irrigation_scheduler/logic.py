@@ -10,33 +10,52 @@ from typing import Any
 ONE_DAY = timedelta(days=1)
 
 
-def _slots_for_day(day: date, start: time, interval: timedelta, tz) -> list[datetime]:
-    """Return all run slots anchored at `start` on `day`, spanning 24 hours."""
-    base = datetime.combine(day, start, tzinfo=tz)
+def window_slots(
+    day: date, start: time, end: time, interval: timedelta, tz
+) -> list[datetime]:
+    """Return run slots `start + k * interval` that begin before `end` on `day`.
+
+    If `end <= start` the window extends past midnight into the next day
+    (`start == end` means a full 24 hours).
+    """
+    slot = datetime.combine(day, start, tzinfo=tz)
+    window_end = datetime.combine(day, end, tzinfo=tz)
+    if window_end <= slot:
+        window_end += ONE_DAY
     slots = []
-    offset = timedelta(0)
-    while offset < ONE_DAY:
-        slots.append(base + offset)
-        offset += interval
+    while slot < window_end:
+        slots.append(slot)
+        slot += interval
     return slots
 
 
-def compute_next_run(now: datetime, start: time, interval_hours: float) -> datetime:
-    """Return the first slot strictly after `now`.
+def compute_next_run(
+    now: datetime,
+    windows: Mapping[int, tuple[time, time]],
+    interval_hours: float,
+) -> tuple[datetime, int] | None:
+    """Return the first slot strictly after `now` and the weekday it belongs to.
 
-    Slots are `start + k * interval` for every day, restarting at `start`
-    each day. With intervals that divide 24 this is a regular grid; other
-    intervals are re-anchored daily at `start`.
+    `windows` maps weekday (0 = Monday) to its (start, end) window. Weekdays
+    missing from the mapping get no runs. Returns None if no weekday is active.
     """
     if interval_hours <= 0:
         raise ValueError("interval_hours must be positive")
     interval = timedelta(hours=interval_hours)
-    tz = now.tzinfo
     today = now.date()
-    candidates: list[datetime] = []
-    for delta in (-1, 0, 1):
-        candidates.extend(_slots_for_day(today + timedelta(days=delta), start, interval, tz))
-    return min(slot for slot in candidates if slot > now)
+    best: tuple[datetime, int] | None = None
+    # Start one day back to catch windows that run past midnight.
+    for delta in range(-1, 8):
+        day = today + timedelta(days=delta)
+        weekday = day.weekday()
+        if weekday not in windows:
+            continue
+        start, end = windows[weekday]
+        for slot in window_slots(day, start, end, interval, now.tzinfo):
+            if slot > now and (best is None or slot < best[0]):
+                best = (slot, weekday)
+                break
+    return best
 
 
 @dataclass(frozen=True)

@@ -3,12 +3,11 @@
     "step": {
       "user": {
         "title": "Set up irrigation",
-        "description": "Runs every n hours starting at the start time, re-anchored daily.",
+        "description": "Per weekday: first run at 'from', then every n hours while the start is before 'to'. Windows and durations are set via the device entities.",
         "data": {
           "name": "Name",
           "valve_entity": "Valve",
           "weather_entity": "Weather entity",
-          "start_time": "Start time",
           "interval_hours": "Interval (hours)",
           "rain_threshold_mm": "Rain amount threshold (mm, 0 = off)",
           "rain_probability": "Rain probability threshold (%, 0 = off)",
@@ -24,11 +23,10 @@
     "step": {
       "init": {
         "title": "Settings",
-        "description": "Runs every n hours starting at the start time, re-anchored daily.",
+        "description": "Per weekday: first run at 'from', then every n hours while the start is before 'to'. Windows and durations are set via the device entities.",
         "data": {
           "valve_entity": "Valve",
           "weather_entity": "Weather entity",
-          "start_time": "Start time",
           "interval_hours": "Interval (hours)",
           "rain_threshold_mm": "Rain amount threshold (mm, 0 = off)",
           "rain_probability": "Rain probability threshold (%, 0 = off)",
@@ -40,25 +38,25 @@
   "entity": {
     "number": {
       "duration_mon": {
-        "name": "Duration Monday"
+        "name": "Monday duration"
       },
       "duration_tue": {
-        "name": "Duration Tuesday"
+        "name": "Tuesday duration"
       },
       "duration_wed": {
-        "name": "Duration Wednesday"
+        "name": "Wednesday duration"
       },
       "duration_thu": {
-        "name": "Duration Thursday"
+        "name": "Thursday duration"
       },
       "duration_fri": {
-        "name": "Duration Friday"
+        "name": "Friday duration"
       },
       "duration_sat": {
-        "name": "Duration Saturday"
+        "name": "Saturday duration"
       },
       "duration_sun": {
-        "name": "Duration Sunday"
+        "name": "Sunday duration"
       }
     },
     "switch": {
@@ -102,6 +100,50 @@
     "binary_sensor": {
       "rain_expected": {
         "name": "Rain expected"
+      }
+    },
+    "time": {
+      "window_start_mon": {
+        "name": "Monday from"
+      },
+      "window_end_mon": {
+        "name": "Monday to"
+      },
+      "window_start_tue": {
+        "name": "Tuesday from"
+      },
+      "window_end_tue": {
+        "name": "Tuesday to"
+      },
+      "window_start_wed": {
+        "name": "Wednesday from"
+      },
+      "window_end_wed": {
+        "name": "Wednesday to"
+      },
+      "window_start_thu": {
+        "name": "Thursday from"
+      },
+      "window_end_thu": {
+        "name": "Thursday to"
+      },
+      "window_start_fri": {
+        "name": "Friday from"
+      },
+      "window_end_fri": {
+        "name": "Friday to"
+      },
+      "window_start_sat": {
+        "name": "Saturday from"
+      },
+      "window_end_sat": {
+        "name": "Saturday to"
+      },
+      "window_start_sun": {
+        "name": "Sunday from"
+      },
+      "window_end_sun": {
+        "name": "Sunday to"
       }
     }
   }

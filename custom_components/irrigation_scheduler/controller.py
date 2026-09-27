@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import logging
 from typing import Any
 
@@ -24,10 +24,11 @@ from .const import (
     CONF_LOOKAHEAD_HOURS,
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
-    CONF_START_TIME,
     CONF_VALVE_ENTITY,
     CONF_WEATHER_ENTITY,
     DEFAULT_DURATION_MIN,
+    DEFAULT_WINDOW_END,
+    DEFAULT_WINDOW_START,
     DOMAIN,
     RAIN_REFRESH_MINUTES,
     STATUS_ERROR,
@@ -53,11 +54,17 @@ class IrrigationController:
         self.config: dict[str, Any] = {**entry.data, **entry.options}
 
         self.durations: dict[str, float] = dict.fromkeys(WEEKDAYS, DEFAULT_DURATION_MIN)
+        default_window = (
+            dt_util.parse_time(DEFAULT_WINDOW_START),
+            dt_util.parse_time(DEFAULT_WINDOW_END),
+        )
+        self.windows: dict[str, list[time]] = {d: list(default_window) for d in WEEKDAYS}
         self.auto_enabled = True
         self.rain_check_enabled = True
 
         self.status = STATUS_IDLE
         self.next_run: datetime | None = None
+        self.next_run_day: str | None = None
         self.last_run: datetime | None = None
         self.run_end: datetime | None = None
         self.rain: RainAssessment | None = None
@@ -69,6 +76,7 @@ class IrrigationController:
         self._unsub_schedule: CALLBACK_TYPE | None = None
         self._unsub_finish: CALLBACK_TYPE | None = None
         self._unsub_rain: CALLBACK_TYPE | None = None
+        self._started = False
 
     # ---------------------------------------------------------------- props
 
@@ -86,6 +94,10 @@ class IrrigationController:
 
     def duration_for(self, when: datetime) -> float:
         return self.durations[WEEKDAYS[when.weekday()]]
+
+    @property
+    def next_run_duration(self) -> float | None:
+        return self.durations[self.next_run_day] if self.next_run_day else None
 
     # ------------------------------------------------------------ listeners
 
@@ -120,6 +132,7 @@ class IrrigationController:
                 await self._async_set_valve(False)
                 await self._async_save()
 
+        self._started = True
         self._schedule_next()
         self._unsub_rain = async_track_time_interval(
             self.hass,
@@ -134,31 +147,50 @@ class IrrigationController:
             if unsub:
                 unsub()
         self._unsub_schedule = self._unsub_finish = self._unsub_rain = None
+        self._started = False
 
     # ------------------------------------------------------------- schedule
+
+    @callback
+    def async_schedule_changed(self) -> None:
+        """Recompute the next run after a duration or window change."""
+        if self._started:
+            self._schedule_next()
+        else:
+            self.async_notify()
 
     @callback
     def _schedule_next(self) -> None:
         if self._unsub_schedule:
             self._unsub_schedule()
-        start = dt_util.parse_time(self.config[CONF_START_TIME])
-        if start is None:
-            _LOGGER.error("Invalid start time: %s", self.config[CONF_START_TIME])
-            self.next_run = None
-            return
-        self.next_run = compute_next_run(
-            dt_util.now(), start, float(self.config[CONF_INTERVAL_HOURS])
+            self._unsub_schedule = None
+        # Days without a duration get no slots at all.
+        windows = {
+            i: tuple(self.windows[day])
+            for i, day in enumerate(WEEKDAYS)
+            if self.durations[day] > 0
+        }
+        result = compute_next_run(
+            dt_util.now(), windows, float(self.config[CONF_INTERVAL_HOURS])
         )
-        self._unsub_schedule = async_track_point_in_time(
-            self.hass, self._async_scheduled_run, self.next_run
-        )
+        if result is None:
+            self.next_run = self.next_run_day = None
+        else:
+            self.next_run, weekday = result
+            self.next_run_day = WEEKDAYS[weekday]
+            self._unsub_schedule = async_track_point_in_time(
+                self.hass, self._async_scheduled_run, self.next_run
+            )
         self.async_notify()
 
     async def _async_scheduled_run(self, _now: datetime) -> None:
         self._unsub_schedule = None
         try:
-            if self.auto_enabled:
-                await self.async_run(check_rain=self.rain_check_enabled)
+            if self.auto_enabled and self.next_run_day:
+                await self.async_run(
+                    duration_min=self.durations[self.next_run_day],
+                    check_rain=self.rain_check_enabled,
+                )
         finally:
             self._schedule_next()
 
