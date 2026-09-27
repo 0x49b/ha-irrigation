@@ -1,0 +1,108 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up irrigation",
+        "description": "Runs every n hours starting at the start time, re-anchored daily.",
+        "data": {
+          "name": "Name",
+          "valve_entity": "Valve",
+          "weather_entity": "Weather entity",
+          "start_time": "Start time",
+          "interval_hours": "Interval (hours)",
+          "rain_threshold_mm": "Rain amount threshold (mm, 0 = off)",
+          "rain_probability": "Rain probability threshold (%, 0 = off)",
+          "lookahead_hours": "Forecast window (hours)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This valve is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Settings",
+        "description": "Runs every n hours starting at the start time, re-anchored daily.",
+        "data": {
+          "valve_entity": "Valve",
+          "weather_entity": "Weather entity",
+          "start_time": "Start time",
+          "interval_hours": "Interval (hours)",
+          "rain_threshold_mm": "Rain amount threshold (mm, 0 = off)",
+          "rain_probability": "Rain probability threshold (%, 0 = off)",
+          "lookahead_hours": "Forecast window (hours)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "duration_mon": {
+        "name": "Duration Monday"
+      },
+      "duration_tue": {
+        "name": "Duration Tuesday"
+      },
+      "duration_wed": {
+        "name": "Duration Wednesday"
+      },
+      "duration_thu": {
+        "name": "Duration Thursday"
+      },
+      "duration_fri": {
+        "name": "Duration Friday"
+      },
+      "duration_sat": {
+        "name": "Duration Saturday"
+      },
+      "duration_sun": {
+        "name": "Duration Sunday"
+      }
+    },
+    "switch": {
+      "automatic": {
+        "name": "Automatic"
+      },
+      "rain_check": {
+        "name": "Rain check"
+      },
+      "watering": {
+        "name": "Watering"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Idle",
+          "watering": "Watering",
+          "skipped_rain": "Skipped (rain)",
+          "skipped_no_duration": "Skipped (no duration)",
+          "error": "Error"
+        }
+      },
+      "next_run": {
+        "name": "Next run"
+      },
+      "last_run": {
+        "name": "Last run"
+      },
+      "today_duration": {
+        "name": "Next run duration"
+      },
+      "rain_forecast": {
+        "name": "Rain forecast"
+      },
+      "rain_probability": {
+        "name": "Rain probability"
+      }
+    },
+    "binary_sensor": {
+      "rain_expected": {
+        "name": "Rain expected"
+      }
+    }
+  }
+}

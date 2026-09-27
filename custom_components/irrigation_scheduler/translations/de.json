@@ -1,0 +1,108 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Bewässerung einrichten",
+        "description": "Läuft ab Startzeit alle n Stunden, jeden Tag neu ab Startzeit.",
+        "data": {
+          "name": "Name",
+          "valve_entity": "Ventil",
+          "weather_entity": "Wetter-Entität",
+          "start_time": "Startzeit",
+          "interval_hours": "Intervall (Stunden)",
+          "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
+          "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
+          "lookahead_hours": "Vorhersagefenster (Stunden)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Dieses Ventil ist bereits konfiguriert"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Einstellungen",
+        "description": "Läuft ab Startzeit alle n Stunden, jeden Tag neu ab Startzeit.",
+        "data": {
+          "valve_entity": "Ventil",
+          "weather_entity": "Wetter-Entität",
+          "start_time": "Startzeit",
+          "interval_hours": "Intervall (Stunden)",
+          "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
+          "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
+          "lookahead_hours": "Vorhersagefenster (Stunden)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "duration_mon": {
+        "name": "Dauer Montag"
+      },
+      "duration_tue": {
+        "name": "Dauer Dienstag"
+      },
+      "duration_wed": {
+        "name": "Dauer Mittwoch"
+      },
+      "duration_thu": {
+        "name": "Dauer Donnerstag"
+      },
+      "duration_fri": {
+        "name": "Dauer Freitag"
+      },
+      "duration_sat": {
+        "name": "Dauer Samstag"
+      },
+      "duration_sun": {
+        "name": "Dauer Sonntag"
+      }
+    },
+    "switch": {
+      "automatic": {
+        "name": "Automatik"
+      },
+      "rain_check": {
+        "name": "Regenprüfung"
+      },
+      "watering": {
+        "name": "Bewässerung"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Bereit",
+          "watering": "Bewässert",
+          "skipped_rain": "Übersprungen (Regen)",
+          "skipped_no_duration": "Übersprungen (keine Dauer)",
+          "error": "Fehler"
+        }
+      },
+      "next_run": {
+        "name": "Nächster Lauf"
+      },
+      "last_run": {
+        "name": "Letzter Lauf"
+      },
+      "today_duration": {
+        "name": "Dauer nächster Lauf"
+      },
+      "rain_forecast": {
+        "name": "Regenvorhersage"
+      },
+      "rain_probability": {
+        "name": "Regenwahrscheinlichkeit"
+      }
+    },
+    "binary_sensor": {
+      "rain_expected": {
+        "name": "Regen erwartet"
+      }
+    }
+  }
+}
