@@ -10,6 +10,17 @@ Custom Integration für eine automatische Bewässerung einer Zone.
 - **Ventil**: `switch`, `valve` oder `input_boolean`.
 - **Neustart-sicher**: Läuft beim HA-Neustart eine Bewässerung, wird das Ende wiederhergestellt bzw. das Ventil geschlossen, falls das Ende bereits verstrichen ist.
 
+## Sidebar-Panel
+
+Die Integration registriert ein Panel **Bewässerung** in der Sidebar (nur für Admins):
+
+- **Status**: aktueller Zustand, nächster/letzter Lauf, Regenvorhersage, manuell bewässern (Minuten frei wählbar) und stoppen.
+- **Einstellungen**: Automatik, Regenprüfung, Ventil, Wetter-Entity, Intervall, Regenschwellen, Vorhersagefenster.
+- **Wochenplan**: Montag bis Sonntag mit Dauer, von, bis und Vorschau der Startzeiten.
+- **Verlauf**: bewässerte Minuten pro Tag (30 Tage) und Tabelle aller Läufe inkl. übersprungener Läufe mit Regenwerten. Aufbewahrung 90 Tage.
+
+Bei mehreren Zonen gibt es oben Tabs pro Zone.
+
 ## Entities
 
 | Entity | Beschreibung |

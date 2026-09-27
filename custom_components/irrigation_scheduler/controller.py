@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_point_in_time,
@@ -30,7 +31,15 @@ from .const import (
     DEFAULT_WINDOW_END,
     DEFAULT_WINDOW_START,
     DOMAIN,
+    HISTORY_DAYS,
+    OPTION_KEYS,
     RAIN_REFRESH_MINUTES,
+    RESULT_COMPLETED,
+    RESULT_ERROR,
+    RESULT_STOPPED,
+    SIGNAL_UPDATE,
+    SOURCE_AUTO,
+    SOURCE_MANUAL,
     STATUS_ERROR,
     STATUS_IDLE,
     STATUS_SKIPPED_NO_DURATION,
@@ -68,6 +77,8 @@ class IrrigationController:
         self.last_run: datetime | None = None
         self.run_end: datetime | None = None
         self.rain: RainAssessment | None = None
+        self.history: list[dict[str, Any]] = []
+        self._current: dict[str, Any] | None = None
 
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
@@ -99,6 +110,46 @@ class IrrigationController:
     def next_run_duration(self) -> float | None:
         return self.durations[self.next_run_day] if self.next_run_day else None
 
+    def as_dict(self) -> dict[str, Any]:
+        """Serializable snapshot for the frontend panel."""
+
+        def iso(value: datetime | None) -> str | None:
+            return value.isoformat() if value else None
+
+        return {
+            "entry_id": self.entry.entry_id,
+            "title": self.entry.title,
+            "status": self.status,
+            "running": self.is_running,
+            "run_end": iso(self.run_end),
+            "next_run": iso(self.next_run),
+            "next_run_day": self.next_run_day,
+            "next_run_duration": self.next_run_duration,
+            "last_run": iso(self.last_run),
+            "auto_enabled": self.auto_enabled,
+            "rain_check_enabled": self.rain_check_enabled,
+            "rain": (
+                {
+                    "amount_mm": self.rain.amount_mm,
+                    "max_probability": self.rain.max_probability,
+                    "skip": self.rain.skip,
+                }
+                if self.rain
+                else None
+            ),
+            "days": [
+                {
+                    "day": day,
+                    "duration": self.durations[day],
+                    "start": self.windows[day][0].strftime("%H:%M"),
+                    "end": self.windows[day][1].strftime("%H:%M"),
+                }
+                for day in WEEKDAYS
+            ],
+            "options": {key: self.config.get(key) for key in OPTION_KEYS},
+            "history": self.history,
+        }
+
     # ------------------------------------------------------------ listeners
 
     @callback
@@ -110,6 +161,7 @@ class IrrigationController:
     def async_notify(self) -> None:
         for update in list(self._listeners):
             update()
+        async_dispatcher_send(self.hass, SIGNAL_UPDATE)
 
     # ------------------------------------------------------------ lifecycle
 
@@ -118,6 +170,9 @@ class IrrigationController:
         stored = await self._store.async_load() or {}
         if last_run := stored.get("last_run"):
             self.last_run = dt_util.parse_datetime(last_run)
+        self.history = stored.get("history") or []
+        if self.history and self.history[-1].get("end") is None:
+            self._current = self.history[-1]
         if run_end := stored.get("run_end"):
             end = dt_util.parse_datetime(run_end)
             if end and end > dt_util.utcnow():
@@ -130,6 +185,8 @@ class IrrigationController:
             else:
                 # Run should have ended while HA was down.
                 await self._async_set_valve(False)
+                if self._current:
+                    self._close_history(end or dt_util.utcnow(), RESULT_COMPLETED)
                 await self._async_save()
 
         self._started = True
@@ -190,6 +247,7 @@ class IrrigationController:
                 await self.async_run(
                     duration_min=self.durations[self.next_run_day],
                     check_rain=self.rain_check_enabled,
+                    source=SOURCE_AUTO,
                 )
         finally:
             self._schedule_next()
@@ -197,7 +255,10 @@ class IrrigationController:
     # ------------------------------------------------------------------ run
 
     async def async_run(
-        self, duration_min: float | None = None, check_rain: bool = True
+        self,
+        duration_min: float | None = None,
+        check_rain: bool = True,
+        source: str = SOURCE_MANUAL,
     ) -> None:
         """Start a run. Uses today's weekday duration unless given explicitly."""
         if self.is_running:
@@ -208,6 +269,8 @@ class IrrigationController:
         if duration_min <= 0:
             _LOGGER.debug("No duration configured for today, skipping")
             self.status = STATUS_SKIPPED_NO_DURATION
+            self._add_history(now, source, STATUS_SKIPPED_NO_DURATION, 0, end=now)
+            await self._async_save()
             self.async_notify()
             return
 
@@ -220,6 +283,8 @@ class IrrigationController:
                     self.rain.max_probability,
                 )
                 self.status = STATUS_SKIPPED_RAIN
+                self._add_history(now, source, STATUS_SKIPPED_RAIN, duration_min, end=now)
+                await self._async_save()
                 self.async_notify()
                 return
 
@@ -228,9 +293,12 @@ class IrrigationController:
         except HomeAssistantError:
             _LOGGER.exception("Could not open valve %s", self.valve_entity)
             self.status = STATUS_ERROR
+            self._add_history(now, source, RESULT_ERROR, duration_min, end=now)
+            await self._async_save()
             self.async_notify()
             return
 
+        self._current = self._add_history(now, source, None, duration_min)
         self.last_run = now
         self.run_end = now + timedelta(minutes=duration_min)
         self.status = STATUS_WATERING
@@ -245,9 +313,11 @@ class IrrigationController:
         if self._unsub_finish:
             self._unsub_finish()
             self._unsub_finish = None
-        await self._async_finish(None)
+        await self._async_finish(None, RESULT_STOPPED)
 
-    async def _async_finish(self, _now: datetime | None) -> None:
+    async def _async_finish(
+        self, _now: datetime | None, result: str = RESULT_COMPLETED
+    ) -> None:
         self._unsub_finish = None
         try:
             await self._async_set_valve(False)
@@ -255,6 +325,9 @@ class IrrigationController:
         except HomeAssistantError:
             _LOGGER.exception("Could not close valve %s", self.valve_entity)
             self.status = STATUS_ERROR
+            result = RESULT_ERROR
+        if self._current:
+            self._close_history(dt_util.now(), result)
         self.run_end = None
         await self._async_save()
         self.async_notify()
@@ -269,11 +342,49 @@ class IrrigationController:
             domain, service, {ATTR_ENTITY_ID: self.valve_entity}, blocking=True
         )
 
+    # -------------------------------------------------------------- history
+
+    def _add_history(
+        self,
+        start: datetime,
+        source: str,
+        result: str | None,
+        planned_min: float,
+        end: datetime | None = None,
+    ) -> dict[str, Any]:
+        entry = {
+            "start": start.isoformat(),
+            "end": end.isoformat() if end else None,
+            "planned_min": planned_min,
+            "actual_min": 0 if end else None,
+            "source": source,
+            "result": result,
+            "rain_mm": self.rain.amount_mm if self.rain else None,
+            "rain_probability": self.rain.max_probability if self.rain else None,
+        }
+        self.history.append(entry)
+        cutoff = dt_util.now() - timedelta(days=HISTORY_DAYS)
+        self.history = [
+            h for h in self.history if dt_util.parse_datetime(h["start"]) >= cutoff
+        ]
+        return entry
+
+    def _close_history(self, end: datetime, result: str) -> None:
+        entry = self._current
+        self._current = None
+        if entry is None:
+            return
+        start = dt_util.parse_datetime(entry["start"])
+        entry["end"] = end.isoformat()
+        entry["result"] = result
+        entry["actual_min"] = round(max((end - start).total_seconds(), 0) / 60, 1)
+
     async def _async_save(self) -> None:
         await self._store.async_save(
             {
                 "last_run": self.last_run.isoformat() if self.last_run else None,
                 "run_end": self.run_end.isoformat() if self.run_end else None,
+                "history": self.history,
             }
         )
 
