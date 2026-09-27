@@ -5,6 +5,7 @@ Custom Integration für eine automatische Bewässerung einer Zone.
 ## Features
 
 - **Zeitfenster pro Wochentag**: `von`/`bis` als `time` Entities (Standard 06:00 bis 22:00). Erster Lauf bei `von`, dann alle *n* Stunden (1 bis 24), solange der Start vor `bis` liegt. Beispiel Montag 07:00 bis 22:00, Intervall 6h: 07:00, 13:00, 19:00. Ein Lauf darf über `bis` hinaus dauern. Ist `bis` kleiner oder gleich `von`, geht das Fenster über Mitternacht (z.B. 22:00 bis 04:00); diese Läufe zählen zum Starttag.
+- **Sonnenauf-/untergang**: Im Panel kann jede Grenze (von/bis) pro Tag einzeln als feste Uhrzeit, Sonnenaufgang oder Sonnenuntergang mit Offset in Minuten gesetzt werden, z.B. von = Aufgang −30, bis = Untergang +30. Berechnet wird für jedes Datum mit dem Standort aus den HA-Einstellungen. In Polarregionen ohne Auf-/Untergang gilt die feste Uhrzeit.
 - **Dauer pro Wochentag**: 7 `number` Entities (Minuten, `0` = an diesem Tag nicht bewässern). Die Dauer gilt pro Lauf.
 - **Regenprüfung**: vor jedem geplanten Lauf wird `weather.get_forecasts` (stündlich, sonst täglich) der gewählten Wetter-Entity abgefragt. Übersprungen wird, wenn im Vorhersagefenster die Regenmenge oder die maximale Regenwahrscheinlichkeit die Schwelle erreicht. Schwelle `0` deaktiviert das jeweilige Kriterium.
 - **Ventil**: `switch`, `valve` oder `input_boolean`.

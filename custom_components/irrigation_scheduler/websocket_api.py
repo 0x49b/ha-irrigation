@@ -20,8 +20,10 @@ from .const import (
     CONF_VALVE_ENTITY,
     CONF_WATER_ENTITY,
     CONF_WEATHER_ENTITY,
+    BOUND_MODES,
     DOMAIN,
     MAX_DURATION_MIN,
+    MAX_SUN_OFFSET_MIN,
     SIGNAL_UPDATE,
     WEEKDAYS,
 )
@@ -40,6 +42,9 @@ OPTIONS_SCHEMA = vol.Schema(
 )
 
 _TIME = vol.All(cv.string, cv.time)
+_OFFSET = vol.All(
+    vol.Coerce(int), vol.Range(min=-MAX_SUN_OFFSET_MIN, max=MAX_SUN_OFFSET_MIN)
+)
 
 
 @callback
@@ -103,11 +108,15 @@ def ws_subscribe(
         vol.Optional("duration"): vol.All(vol.Coerce(float), vol.Range(min=0, max=MAX_DURATION_MIN)),
         vol.Optional("start"): _TIME,
         vol.Optional("end"): _TIME,
+        vol.Optional("start_mode"): vol.In(BOUND_MODES),
+        vol.Optional("end_mode"): vol.In(BOUND_MODES),
+        vol.Optional("start_offset"): _OFFSET,
+        vol.Optional("end_offset"): _OFFSET,
     }
 )
 @websocket_api.require_admin
-@callback
-def ws_set_day(
+@websocket_api.async_response
+async def ws_set_day(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
     if not (controller := _get_controller(hass, connection, msg)):
@@ -115,10 +124,12 @@ def ws_set_day(
     day = msg["day"]
     if "duration" in msg:
         controller.durations[day] = msg["duration"]
-    if "start" in msg:
-        controller.windows[day][0] = msg["start"]
-    if "end" in msg:
-        controller.windows[day][1] = msg["end"]
+    for index, bound in enumerate(("start", "end")):
+        if bound in msg:
+            controller.windows[day][index] = msg[bound]
+        mode, offset = msg.get(f"{bound}_mode"), msg.get(f"{bound}_offset")
+        if mode is not None or offset is not None:
+            await controller.async_set_window_mode(day, index, mode, offset)
     controller.async_schedule_changed()
     connection.send_result(msg["id"])
 
