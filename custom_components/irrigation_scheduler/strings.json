@@ -11,7 +11,11 @@
           "interval_hours": "Interval (hours)",
           "rain_threshold_mm": "Rain amount threshold (mm, 0 = off)",
           "rain_probability": "Rain probability threshold (%, 0 = off)",
-          "lookahead_hours": "Forecast window (hours)"
+          "lookahead_hours": "Forecast window (hours)",
+          "water_entity": "Water meter or flow sensor (optional)"
+        },
+        "data_description": {
+          "water_entity": "Volume meter (L, m³) or flow rate (L/min, m³/h), e.g. from the valve. Evaluated per run."
         }
       }
     },
@@ -30,7 +34,11 @@
           "interval_hours": "Interval (hours)",
           "rain_threshold_mm": "Rain amount threshold (mm, 0 = off)",
           "rain_probability": "Rain probability threshold (%, 0 = off)",
-          "lookahead_hours": "Forecast window (hours)"
+          "lookahead_hours": "Forecast window (hours)",
+          "water_entity": "Water meter or flow sensor (optional)"
+        },
+        "data_description": {
+          "water_entity": "Volume meter (L, m³) or flow rate (L/min, m³/h), e.g. from the valve. Evaluated per run."
         }
       }
     }
@@ -95,6 +103,12 @@
       },
       "rain_probability": {
         "name": "Rain probability"
+      },
+      "water_last_run": {
+        "name": "Water last run"
+      },
+      "water_total": {
+        "name": "Water total"
       }
     },
     "binary_sensor": {

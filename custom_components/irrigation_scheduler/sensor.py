@@ -13,7 +13,12 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfPrecipitationDepth, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    UnitOfPrecipitationDepth,
+    UnitOfTime,
+    UnitOfVolume,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -68,12 +73,31 @@ SENSORS = (
 )
 
 
+WATER_SENSORS = (
+    IrrigationSensorDescription(
+        key="water_last_run",
+        device_class=SensorDeviceClass.WATER,
+        native_unit_of_measurement=UnitOfVolume.LITERS,
+        value_fn=lambda c: c.last_water_l,
+    ),
+    IrrigationSensorDescription(
+        key="water_total",
+        device_class=SensorDeviceClass.WATER,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfVolume.LITERS,
+        value_fn=lambda c: c.water_total_l,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: IrrigationConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    async_add_entities(IrrigationSensor(entry.runtime_data, d) for d in SENSORS)
+    controller = entry.runtime_data
+    descriptions = SENSORS + (WATER_SENSORS if controller.water_entity else ())
+    async_add_entities(IrrigationSensor(controller, d) for d in descriptions)
 
 
 class IrrigationSensor(IrrigationEntity, SensorEntity):

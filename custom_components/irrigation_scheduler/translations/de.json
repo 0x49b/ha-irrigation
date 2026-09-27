@@ -11,7 +11,11 @@
           "interval_hours": "Intervall (Stunden)",
           "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
           "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
-          "lookahead_hours": "Vorhersagefenster (Stunden)"
+          "lookahead_hours": "Vorhersagefenster (Stunden)",
+          "water_entity": "Wasserzähler oder Durchfluss (optional)"
+        },
+        "data_description": {
+          "water_entity": "Zählerstand (L, m³) oder Durchfluss (L/min, m³/h), z.B. vom Sonoff-Ventil. Wird pro Lauf ausgewertet."
         }
       }
     },
@@ -30,7 +34,11 @@
           "interval_hours": "Intervall (Stunden)",
           "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
           "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
-          "lookahead_hours": "Vorhersagefenster (Stunden)"
+          "lookahead_hours": "Vorhersagefenster (Stunden)",
+          "water_entity": "Wasserzähler oder Durchfluss (optional)"
+        },
+        "data_description": {
+          "water_entity": "Zählerstand (L, m³) oder Durchfluss (L/min, m³/h), z.B. vom Sonoff-Ventil. Wird pro Lauf ausgewertet."
         }
       }
     }
@@ -95,6 +103,12 @@
       },
       "rain_probability": {
         "name": "Regenwahrscheinlichkeit"
+      },
+      "water_last_run": {
+        "name": "Wasser letzter Lauf"
+      },
+      "water_total": {
+        "name": "Wasser gesamt"
       }
     },
     "binary_sensor": {

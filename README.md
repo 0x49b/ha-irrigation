@@ -8,7 +8,19 @@ Custom Integration für eine automatische Bewässerung einer Zone.
 - **Dauer pro Wochentag**: 7 `number` Entities (Minuten, `0` = an diesem Tag nicht bewässern). Die Dauer gilt pro Lauf.
 - **Regenprüfung**: vor jedem geplanten Lauf wird `weather.get_forecasts` (stündlich, sonst täglich) der gewählten Wetter-Entity abgefragt. Übersprungen wird, wenn im Vorhersagefenster die Regenmenge oder die maximale Regenwahrscheinlichkeit die Schwelle erreicht. Schwelle `0` deaktiviert das jeweilige Kriterium.
 - **Ventil**: `switch`, `valve` oder `input_boolean`.
+- **Wasserverbrauch (optional)**: Ein Sensor des Bewässerungscomputers wird pro Lauf ausgewertet. Zählerstand (L, m³, gal, ...) wird als Differenz Start/Ende gerechnet und 90 s nach Ende nochmals gelesen, weil Zigbee-Geräte verzögert melden. Ein Zähler-Reset während des Laufs wird erkannt. Durchfluss (L/min, m³/h, ...) wird über die Laufzeit integriert.
 - **Neustart-sicher**: Läuft beim HA-Neustart eine Bewässerung, wird das Ende wiederhergestellt bzw. das Ventil geschlossen, falls das Ende bereits verstrichen ist.
+
+## Sidebar-Panel
+
+Die Integration registriert ein Panel **Bewässerung** in der Sidebar (nur für Admins):
+
+- **Status**: aktueller Zustand, nächster/letzter Lauf, Regenvorhersage, manuell bewässern (Minuten frei wählbar) und stoppen.
+- **Einstellungen**: Automatik, Regenprüfung, Ventil, Wetter-Entity, Intervall, Regenschwellen, Vorhersagefenster.
+- **Wochenplan**: Montag bis Sonntag mit Dauer, von, bis und Vorschau der Startzeiten.
+- **Verlauf**: bewässerte Minuten pro Tag (30 Tage) und Tabelle aller Läufe inkl. übersprungener Läufe mit Regenwerten und, falls konfiguriert, Wassermenge. Aufbewahrung 90 Tage.
+
+Bei mehreren Zonen gibt es oben Tabs pro Zone.
 
 ## Entities
 
@@ -23,6 +35,7 @@ Custom Integration für eine automatische Bewässerung einer Zone.
 | `sensor.*_nachster_lauf` / `_letzter_lauf` | Zeitstempel |
 | `sensor.*_dauer_nachster_lauf` | Dauer des nächsten Laufs |
 | `sensor.*_regenvorhersage` / `_regenwahrscheinlichkeit` | Summe mm / max. % im Vorhersagefenster (alle 30 min aktualisiert) |
+| `sensor.*_wasser_letzter_lauf` / `_wasser_gesamt` | Nur mit Wassersensor: Liter des letzten Laufs / Gesamtzähler (`total_increasing`, Energy-Dashboard-tauglich) |
 | `binary_sensor.*_regen_erwartet` | Würde der nächste Lauf wegen Regen übersprungen |
 
 ## Installation

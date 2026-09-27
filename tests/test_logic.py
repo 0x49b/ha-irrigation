@@ -121,3 +121,11 @@ def test_assess_rain_missing_values():
     fc = [{"datetime": now.isoformat()}, {"datetime": None}, {"datetime": "garbage"}]
     res = logic.assess_rain(fc, now, 12, 1, 50)
     assert res == logic.RainAssessment(0, None, False)
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [(100.0, 135.5, 35.5), (100.0, 100.0, 0.0), (100.0, 12.0, 12.0)],
+)
+def test_meter_consumption(start, end, expected):
+    assert logic.meter_consumption(start, end) == expected

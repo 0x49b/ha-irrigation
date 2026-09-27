@@ -1,13 +1,21 @@
 {
   "domain": "irrigation_scheduler",
   "name": "Irrigation Scheduler",
-  "codeowners": ["@0x49b"],
+  "codeowners": [
+    "@0x49b"
+  ],
   "config_flow": true,
-  "dependencies": ["weather"],
+  "dependencies": [
+    "frontend",
+    "http",
+    "panel_custom",
+    "weather",
+    "websocket_api"
+  ],
   "documentation": "https://github.com/0x49b/ha-irrigation",
   "integration_type": "device",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/0x49b/ha-irrigation/issues",
   "requirements": [],
-  "version": "0.2.0"
+  "version": "0.4.0"
 }

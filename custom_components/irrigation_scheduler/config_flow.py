@@ -17,6 +17,7 @@ from .const import (
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
+    CONF_WATER_ENTITY,
     CONF_WEATHER_ENTITY,
     DEFAULT_INTERVAL_HOURS,
     DEFAULT_LOOKAHEAD_HOURS,
@@ -52,6 +53,11 @@ def _settings_schema(defaults: dict[str, Any]) -> dict[vol.Marker, Any]:
             _number(0, 100, 1, "%"),
         vol.Required(CONF_LOOKAHEAD_HOURS, default=defaults.get(CONF_LOOKAHEAD_HOURS, DEFAULT_LOOKAHEAD_HOURS)):
             _number(1, 72, 1, "h"),
+        # Optional: volume meter (L, m³) or flow sensor (L/min, m³/h).
+        vol.Optional(
+            CONF_WATER_ENTITY,
+            description={"suggested_value": defaults.get(CONF_WATER_ENTITY)},
+        ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
     }
 
 
@@ -79,6 +85,8 @@ class IrrigationConfigFlow(ConfigFlow, domain=DOMAIN):
 class IrrigationOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
+            # Explicit None so a cleared field overrides a value from entry.data.
+            user_input.setdefault(CONF_WATER_ENTITY, None)
             return self.async_create_entry(data=user_input)
         current = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(
