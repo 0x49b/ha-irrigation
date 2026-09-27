@@ -16,7 +16,6 @@ from .const import (
     CONF_LOOKAHEAD_HOURS,
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
-    CONF_START_TIME,
     CONF_VALVE_ENTITY,
     CONF_WEATHER_ENTITY,
     DEFAULT_INTERVAL_HOURS,
@@ -24,7 +23,6 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_RAIN_PROBABILITY,
     DEFAULT_RAIN_THRESHOLD_MM,
-    DEFAULT_START_TIME,
     DOMAIN,
 )
 
@@ -46,8 +44,6 @@ def _settings_schema(defaults: dict[str, Any]) -> dict[vol.Marker, Any]:
             ),
         vol.Required(CONF_WEATHER_ENTITY, default=defaults.get(CONF_WEATHER_ENTITY, vol.UNDEFINED)):
             selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
-        vol.Required(CONF_START_TIME, default=defaults.get(CONF_START_TIME, DEFAULT_START_TIME)):
-            selector.TimeSelector(),
         vol.Required(CONF_INTERVAL_HOURS, default=defaults.get(CONF_INTERVAL_HOURS, DEFAULT_INTERVAL_HOURS)):
             _number(1, 24, 1, "h"),
         vol.Required(CONF_RAIN_THRESHOLD_MM, default=defaults.get(CONF_RAIN_THRESHOLD_MM, DEFAULT_RAIN_THRESHOLD_MM)):

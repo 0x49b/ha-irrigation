@@ -51,4 +51,4 @@ class WeekdayDurationNumber(IrrigationEntity, RestoreNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         self.controller.durations[self._day] = value
-        self.controller.async_notify()
+        self.controller.async_schedule_changed()

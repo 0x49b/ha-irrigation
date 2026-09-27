@@ -23,26 +23,44 @@ def dt(day, hour, minute=0):
     return datetime(2026, 7, day, hour, minute, tzinfo=TZ)
 
 
+ALL_DAYS = range(7)
+
+
+def windows(start, end, days=ALL_DAYS):
+    return {d: (start, end) for d in days}
+
+
+# 2026-07-01 is a Wednesday (weekday 2).
 @pytest.mark.parametrize(
-    ("now", "start", "interval", "expected"),
+    ("now", "win", "interval", "expected"),
     [
-        (dt(1, 5), time(6), 24, dt(1, 6)),
-        (dt(1, 6), time(6), 24, dt(2, 6)),
-        (dt(1, 7), time(6), 12, dt(1, 18)),
-        (dt(1, 19), time(6), 12, dt(2, 6)),
-        (dt(1, 1), time(22), 6, dt(1, 4)),  # slot from previous day's cycle
-        (dt(1, 22, 30), time(6), 5, dt(2, 2)),  # 6,11,16,21,2 then re-anchor at 6
-        (dt(2, 3), time(6), 5, dt(2, 6)),
-        (dt(1, 12), time(6), 5, dt(1, 16)),
+        (dt(1, 5), windows(time(7), time(22)), 6, (dt(1, 7), 2)),
+        (dt(1, 7), windows(time(7), time(22)), 6, (dt(1, 13), 2)),
+        (dt(1, 19), windows(time(7), time(22)), 6, (dt(2, 7), 3)),  # 01:00 would be outside
+        (dt(1, 7), windows(time(7), time(22)), 24, (dt(2, 7), 3)),
+        (dt(1, 21, 59), windows(time(7), time(21, 59)), 1, (dt(2, 7), 3)),  # end is exclusive
+        # Overnight window 22:00-04:00, slots belong to the day the window starts.
+        (dt(1, 23), windows(time(22), time(4)), 2, (dt(2, 0), 2)),
+        (dt(2, 3), windows(time(22), time(4), days=[2]), 2, (dt(8, 22), 2)),
+        # Only Monday active -> next Monday.
+        (dt(1, 12), windows(time(7), time(22), days=[0]), 6, (dt(6, 7), 0)),
+        # start == end means 24h window.
+        (dt(1, 23), windows(time(6), time(6)), 12, (dt(2, 6), 3)),
+        # Different windows per day.
+        (dt(1, 20), {2: (time(7), time(12)), 3: (time(9), time(10))}, 2, (dt(2, 9), 3)),
     ],
 )
-def test_compute_next_run(now, start, interval, expected):
-    assert logic.compute_next_run(now, start, interval) == expected
+def test_compute_next_run(now, win, interval, expected):
+    assert logic.compute_next_run(now, win, interval) == expected
+
+
+def test_compute_next_run_no_active_day():
+    assert logic.compute_next_run(dt(1, 1), {}, 6) is None
 
 
 def test_compute_next_run_invalid():
     with pytest.raises(ValueError):
-        logic.compute_next_run(dt(1, 1), time(6), 0)
+        logic.compute_next_run(dt(1, 1), windows(time(6), time(22)), 0)
 
 
 def hourly(now, values):

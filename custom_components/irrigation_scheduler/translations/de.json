@@ -3,12 +3,11 @@
     "step": {
       "user": {
         "title": "Bewässerung einrichten",
-        "description": "Läuft ab Startzeit alle n Stunden, jeden Tag neu ab Startzeit.",
+        "description": "Pro Wochentag: erster Lauf bei 'von', dann alle n Stunden, solange der Start vor 'bis' liegt. Fenster und Dauer werden über die Entities des Geräts eingestellt.",
         "data": {
           "name": "Name",
           "valve_entity": "Ventil",
           "weather_entity": "Wetter-Entität",
-          "start_time": "Startzeit",
           "interval_hours": "Intervall (Stunden)",
           "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
           "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
@@ -24,11 +23,10 @@
     "step": {
       "init": {
         "title": "Einstellungen",
-        "description": "Läuft ab Startzeit alle n Stunden, jeden Tag neu ab Startzeit.",
+        "description": "Pro Wochentag: erster Lauf bei 'von', dann alle n Stunden, solange der Start vor 'bis' liegt. Fenster und Dauer werden über die Entities des Geräts eingestellt.",
         "data": {
           "valve_entity": "Ventil",
           "weather_entity": "Wetter-Entität",
-          "start_time": "Startzeit",
           "interval_hours": "Intervall (Stunden)",
           "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
           "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
@@ -40,25 +38,25 @@
   "entity": {
     "number": {
       "duration_mon": {
-        "name": "Dauer Montag"
+        "name": "Montag Dauer"
       },
       "duration_tue": {
-        "name": "Dauer Dienstag"
+        "name": "Dienstag Dauer"
       },
       "duration_wed": {
-        "name": "Dauer Mittwoch"
+        "name": "Mittwoch Dauer"
       },
       "duration_thu": {
-        "name": "Dauer Donnerstag"
+        "name": "Donnerstag Dauer"
       },
       "duration_fri": {
-        "name": "Dauer Freitag"
+        "name": "Freitag Dauer"
       },
       "duration_sat": {
-        "name": "Dauer Samstag"
+        "name": "Samstag Dauer"
       },
       "duration_sun": {
-        "name": "Dauer Sonntag"
+        "name": "Sonntag Dauer"
       }
     },
     "switch": {
@@ -102,6 +100,50 @@
     "binary_sensor": {
       "rain_expected": {
         "name": "Regen erwartet"
+      }
+    },
+    "time": {
+      "window_start_mon": {
+        "name": "Montag von"
+      },
+      "window_end_mon": {
+        "name": "Montag bis"
+      },
+      "window_start_tue": {
+        "name": "Dienstag von"
+      },
+      "window_end_tue": {
+        "name": "Dienstag bis"
+      },
+      "window_start_wed": {
+        "name": "Mittwoch von"
+      },
+      "window_end_wed": {
+        "name": "Mittwoch bis"
+      },
+      "window_start_thu": {
+        "name": "Donnerstag von"
+      },
+      "window_end_thu": {
+        "name": "Donnerstag bis"
+      },
+      "window_start_fri": {
+        "name": "Freitag von"
+      },
+      "window_end_fri": {
+        "name": "Freitag bis"
+      },
+      "window_start_sat": {
+        "name": "Samstag von"
+      },
+      "window_end_sat": {
+        "name": "Samstag bis"
+      },
+      "window_start_sun": {
+        "name": "Sonntag von"
+      },
+      "window_end_sun": {
+        "name": "Sonntag bis"
       }
     }
   }
