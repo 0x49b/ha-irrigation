@@ -29,11 +29,6 @@ const RESULT = {
   skipped_no_duration: "Übersprungen (keine Dauer)",
 };
 const SOURCE = { auto: "Automatik", manual: "Manuell" };
-const BOUND_MODES = [
-  ["time", "Uhrzeit"],
-  ["sunrise", "Aufgang"],
-  ["sunset", "Untergang"],
-];
 
 const CHART_DAYS = 30;
 
@@ -150,9 +145,6 @@ const STYLE = `
   tr.today td:first-child { font-weight: 600; color: var(--primary-color); }
   tr.off td { color: var(--secondary-text-color); }
   .slots { color: var(--secondary-text-color); font-size: 13px; }
-  .bound { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
-  .bound .resolved { color: var(--secondary-text-color); font-size: 13px; white-space: nowrap; }
-  #week input.offset { width: 64px; }
   .form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; align-items: center; }
   .form select, .form input { max-width: 100%; }
   .form select { width: 100%; min-width: 0; }
@@ -187,8 +179,6 @@ const STYLE = `
     th, td { padding: 6px 4px; }
     #week input[type=number] { width: 52px; }
     #week input[type=time] { width: 96px; padding: 5px 4px; }
-    #week select { max-width: 96px; padding: 5px 2px; }
-    #week input.offset { width: 52px; }
   }
 `;
 
@@ -316,15 +306,13 @@ class IrrigationSchedulerPanel extends HTMLElement {
       if (flag) this._ws("set_flags", { [flag]: ev.target.checked });
     });
 
-    $("week").addEventListener("change", async (ev) => {
+    $("week").addEventListener("change", (ev) => {
       const { day, field } = ev.target.dataset || {};
       if (!day || !field) return;
-      const numeric = field === "duration" || field.endsWith("_offset");
-      const value = numeric ? Number(ev.target.value) : ev.target.value;
-      if (numeric ? !Number.isFinite(value) || ev.target.value === "" : !value) return;
-      await this._ws("set_day", { day, [field]: value });
-      // A mode change swaps the time input for an offset input: re-render right away.
-      if (field.endsWith("_mode") && this._zone) this._renderWeek(this._zone);
+      const value = field === "duration" ? Number(ev.target.value) : ev.target.value;
+      if (field === "duration" && !(value >= 0)) return;
+      if (field !== "duration" && !value) return;
+      this._ws("set_day", { day, [field]: value });
     });
     $("week").addEventListener("focusout", () => setTimeout(() => this._update(), 0));
 
@@ -478,35 +466,19 @@ class IrrigationSchedulerPanel extends HTMLElement {
       <button data-action="reset" ${this._settingsDirty ? "" : "disabled"}>Verwerfen</button>`;
   }
 
-  _boundCell(d, key, bound) {
-    const mode = d[`${bound}_mode`] || "time";
-    const select = `<select data-day="${key}" data-field="${bound}_mode">${BOUND_MODES.map(
-      ([value, label]) => `<option value="${value}" ${value === mode ? "selected" : ""}>${label}</option>`,
-    ).join("")}</select>`;
-    if (mode === "time") {
-      return `<div class="bound">${select}<input type="time" data-day="${key}" data-field="${bound}" value="${esc(d[bound])}"></div>`;
-    }
-    const offset = d[`${bound}_offset`] ?? 0;
-    return `<div class="bound">${select}
-      <input class="offset" type="number" min="-240" max="240" step="5" data-day="${key}" data-field="${bound}_offset" value="${esc(offset)}" title="Offset in Minuten (negativ = vorher)">
-      <span class="resolved">min, ≈ ${esc(d[`${bound}_resolved`] || "")}</span></div>`;
-  }
-
   _renderWeek(z) {
     const today = DAYS[(new Date().getDay() + 6) % 7][0];
     const interval = Number(z.options.interval_hours) || 24;
     const rows = DAYS.map(([key, name, short]) => {
       const d = z.days.find((x) => x.day === key) || { duration: 0, start: "06:00", end: "22:00" };
       const off = !(d.duration > 0);
-      const start = d.start_resolved || d.start;
-      const end = d.end_resolved || d.end;
-      const slots = off ? "kein Lauf" : windowSlots(start, end, interval).join(", ");
+      const slots = off ? "kein Lauf" : windowSlots(d.start, d.end, interval).join(", ");
       return `
         <tr class="${key === today ? "today" : ""} ${off ? "off" : ""}">
           <td><span class="hide-narrow">${name}</span><span class="narrow-only">${short}</span></td>
           <td><input type="number" min="0" max="240" step="1" data-day="${key}" data-field="duration" value="${esc(d.duration)}"><span class="hide-narrow"> min</span></td>
-          <td>${this._boundCell(d, key, "start")}</td>
-          <td>${this._boundCell(d, key, "end")}</td>
+          <td><input type="time" data-day="${key}" data-field="start" value="${esc(d.start)}"></td>
+          <td><input type="time" data-day="${key}" data-field="end" value="${esc(d.end)}"></td>
           <td class="slots hide-narrow">${esc(slots)}</td>
         </tr>`;
     }).join("");
@@ -517,7 +489,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
         <tbody>${rows}</tbody>
       </table>
       </div>
-      <div class="hint" style="margin-top:8px">Dauer 0 = an diesem Tag keine Bewässerung. Sonnenzeiten mit Offset in Minuten (z.B. Aufgang −30, Untergang +30), berechnet für den Standort aus den HA-Einstellungen; "≈" zeigt die Zeit am nächsten entsprechenden Wochentag. Ist "Bis" früher als "Von", läuft das Fenster über Mitternacht.</div>`;
+      <div class="hint" style="margin-top:8px">Dauer 0 = an diesem Tag keine Bewässerung. Ist "Bis" früher als "Von", läuft das Fenster über Mitternacht.</div>`;
   }
 
   _renderHistory(z) {

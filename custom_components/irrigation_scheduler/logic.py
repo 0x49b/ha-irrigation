@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -31,13 +31,13 @@ def window_slots(
 
 def compute_next_run(
     now: datetime,
-    window_for: Callable[[date], tuple[time, time] | None],
+    windows: Mapping[int, tuple[time, time]],
     interval_hours: float,
 ) -> tuple[datetime, int] | None:
     """Return the first slot strictly after `now` and the weekday it belongs to.
 
-    `window_for(day)` returns the (start, end) window of that date, or None if
-    the date gets no runs. Returns None if no day within a week is active.
+    `windows` maps weekday (0 = Monday) to its (start, end) window. Weekdays
+    missing from the mapping get no runs. Returns None if no weekday is active.
     """
     if interval_hours <= 0:
         raise ValueError("interval_hours must be positive")
@@ -47,10 +47,10 @@ def compute_next_run(
     # Start one day back to catch windows that run past midnight.
     for delta in range(-1, 8):
         day = today + timedelta(days=delta)
-        if (window := window_for(day)) is None:
-            continue
-        start, end = window
         weekday = day.weekday()
+        if weekday not in windows:
+            continue
+        start, end = windows[weekday]
         for slot in window_slots(day, start, end, interval, now.tzinfo):
             if slot > now and (best is None or slot < best[0]):
                 best = (slot, weekday)

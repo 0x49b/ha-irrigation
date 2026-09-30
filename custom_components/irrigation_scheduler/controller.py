@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, time, timedelta
 import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ENTITY_ID, SUN_EVENT_SUNRISE, SUN_EVENT_SUNSET
+from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -18,12 +18,9 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.sun import get_astral_event_date
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    BOUND_SUNRISE,
-    BOUND_TIME,
     CONF_INTERVAL_HOURS,
     CONF_LOOKAHEAD_HOURS,
     CONF_RAIN_PROBABILITY,
@@ -82,12 +79,6 @@ class IrrigationController:
             dt_util.parse_time(DEFAULT_WINDOW_END),
         )
         self.windows: dict[str, list[time]] = {d: list(default_window) for d in WEEKDAYS}
-        # Per day [start, end]: {"mode": time|sunrise|sunset, "offset": minutes}.
-        # Fixed times live in self.windows (backed by the time entities).
-        self.window_modes: dict[str, list[dict[str, Any]]] = {
-            d: [{"mode": BOUND_TIME, "offset": 0}, {"mode": BOUND_TIME, "offset": 0}]
-            for d in WEEKDAYS
-        }
         self.auto_enabled = True
         self.rain_check_enabled = True
 
@@ -181,7 +172,15 @@ class IrrigationController:
                 if self.rain
                 else None
             ),
-            "days": [self._day_dict(day) for day in WEEKDAYS],
+            "days": [
+                {
+                    "day": day,
+                    "duration": self.durations[day],
+                    "start": self.windows[day][0].strftime("%H:%M"),
+                    "end": self.windows[day][1].strftime("%H:%M"),
+                }
+                for day in WEEKDAYS
+            ],
             "options": {key: self.config.get(key) for key in OPTION_KEYS},
             "water_entity": self.water_entity,
             "water_total_l": self.water_total_l if self._water else None,
@@ -192,50 +191,6 @@ class IrrigationController:
             "last_cost": self.last_cost,
             "history": self.history,
         }
-
-    def _day_dict(self, day: str) -> dict[str, Any]:
-        today = dt_util.now().date()
-        # Next date with this weekday, to show the resolved sun times.
-        on = today + timedelta(days=(WEEKDAYS.index(day) - today.weekday()) % 7)
-        result: dict[str, Any] = {"day": day, "duration": self.durations[day]}
-        for index, bound in enumerate(("start", "end")):
-            mode = self.window_modes[day][index]
-            result[bound] = self.windows[day][index].strftime("%H:%M")
-            result[f"{bound}_mode"] = mode["mode"]
-            result[f"{bound}_offset"] = mode["offset"]
-            result[f"{bound}_resolved"] = self._bound_time(day, index, on).strftime("%H:%M")
-        return result
-
-    # --------------------------------------------------------------- window
-
-    def _bound_time(self, day: str, index: int, on: date) -> time:
-        """Resolve window start (index 0) or end (1) of weekday `day` on date `on`."""
-        mode = self.window_modes[day][index]
-        if mode["mode"] == BOUND_TIME:
-            return self.windows[day][index]
-        event = SUN_EVENT_SUNRISE if mode["mode"] == BOUND_SUNRISE else SUN_EVENT_SUNSET
-        sun = get_astral_event_date(self.hass, event, on)
-        if sun is None:
-            # Polar day/night: fall back to the fixed time.
-            return self.windows[day][index]
-        local = dt_util.as_local(sun) + timedelta(minutes=mode["offset"])
-        return local.time().replace(second=0, microsecond=0)
-
-    def window_for(self, on: date) -> tuple[time, time] | None:
-        day = WEEKDAYS[on.weekday()]
-        if self.durations[day] <= 0:
-            return None
-        return self._bound_time(day, 0, on), self._bound_time(day, 1, on)
-
-    async def async_set_window_mode(
-        self, day: str, index: int, mode: str | None = None, offset: int | None = None
-    ) -> None:
-        bound = self.window_modes[day][index]
-        if mode is not None:
-            bound["mode"] = mode
-        if offset is not None:
-            bound["offset"] = offset
-        await self._async_save()
 
     # ------------------------------------------------------------ listeners
 
@@ -262,9 +217,6 @@ class IrrigationController:
         self.last_water_l = stored.get("last_water_l")
         self.cost_total = stored.get("cost_total") or 0.0
         self.last_cost = stored.get("last_cost")
-        for day, bounds in (stored.get("window_modes") or {}).items():
-            if day in self.window_modes and len(bounds) == 2:
-                self.window_modes[day] = bounds
         if self.history and self.history[-1].get("end") is None:
             self._current = self.history[-1]
             if self._water:
@@ -322,8 +274,14 @@ class IrrigationController:
         if self._unsub_schedule:
             self._unsub_schedule()
             self._unsub_schedule = None
+        # Days without a duration get no slots at all.
+        windows = {
+            i: tuple(self.windows[day])
+            for i, day in enumerate(WEEKDAYS)
+            if self.durations[day] > 0
+        }
         result = compute_next_run(
-            dt_util.now(), self.window_for, float(self.config[CONF_INTERVAL_HOURS])
+            dt_util.now(), windows, float(self.config[CONF_INTERVAL_HOURS])
         )
         if result is None:
             self.next_run = self.next_run_day = None
@@ -520,7 +478,6 @@ class IrrigationController:
                 "last_water_l": self.last_water_l,
                 "cost_total": self.cost_total,
                 "last_cost": self.last_cost,
-                "window_modes": self.window_modes,
             }
         )
 

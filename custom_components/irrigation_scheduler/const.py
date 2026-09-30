@@ -31,13 +31,6 @@ MAX_DURATION_MIN = 240
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
-# Window bound modes: fixed time of day, or sunrise/sunset plus offset minutes.
-BOUND_TIME = "time"
-BOUND_SUNRISE = "sunrise"
-BOUND_SUNSET = "sunset"
-BOUND_MODES = (BOUND_TIME, BOUND_SUNRISE, BOUND_SUNSET)
-MAX_SUN_OFFSET_MIN = 240
-
 RAIN_REFRESH_MINUTES = 30
 
 STATUS_IDLE = "idle"

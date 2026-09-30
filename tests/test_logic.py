@@ -30,10 +30,6 @@ def windows(start, end, days=ALL_DAYS):
     return {d: (start, end) for d in days}
 
 
-def resolver(win):
-    return lambda day: win.get(day.weekday())
-
-
 # 2026-07-01 is a Wednesday (weekday 2).
 @pytest.mark.parametrize(
     ("now", "win", "interval", "expected"),
@@ -55,24 +51,16 @@ def resolver(win):
     ],
 )
 def test_compute_next_run(now, win, interval, expected):
-    assert logic.compute_next_run(now, resolver(win), interval) == expected
-
-
-def test_compute_next_run_date_dependent_window():
-    # Sun-based windows differ per date; the resolver gets the concrete date.
-    def sun(day):
-        return (time(6, day.day), time(20))
-
-    assert logic.compute_next_run(dt(1, 21), sun, 24) == (dt(2, 6, 2), 3)
+    assert logic.compute_next_run(now, win, interval) == expected
 
 
 def test_compute_next_run_no_active_day():
-    assert logic.compute_next_run(dt(1, 1), resolver({}), 6) is None
+    assert logic.compute_next_run(dt(1, 1), {}, 6) is None
 
 
 def test_compute_next_run_invalid():
     with pytest.raises(ValueError):
-        logic.compute_next_run(dt(1, 1), resolver(windows(time(6), time(22))), 0)
+        logic.compute_next_run(dt(1, 1), windows(time(6), time(22)), 0)
 
 
 def hourly(now, values):
