@@ -57,6 +57,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_update_options,
         ws_run,
         ws_stop,
+        ws_recalculate_costs,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -204,3 +205,17 @@ async def ws_stop(
         return
     await controller.async_stop()
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/recalculate_costs", vol.Required("entry_id"): str}
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_recalculate_costs(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    if not (controller := _get_controller(hass, connection, msg)):
+        return
+    count = await controller.async_recalculate_costs()
+    connection.send_result(msg["id"], {"count": count})

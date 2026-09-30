@@ -45,6 +45,10 @@ const fmtMoney = (v, currency) => {
   }
 };
 
+// Finished runs with a measured amount but no cost (e.g. from before tariffs existed).
+const uncostedRuns = (z) =>
+  (z?.history || []).filter((h) => h.end != null && h.water_l != null && h.cost == null);
+
 const fmtLiters = (v) => (v === null || v === undefined ? "–" : `${fmtNum(v, v < 100 ? 1 : 0)} L`);
 
 const esc = (v) =>
@@ -268,7 +272,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
         <div id="main">
           <div class="grid2">
             <div class="card"><h2>Status</h2><div id="status"></div><div id="manual"></div></div>
-            <div class="card"><h2>Einstellungen</h2><div id="flags"></div><div id="settings"></div></div>
+            <div class="card"><h2>Einstellungen</h2><div id="flags"></div><div id="settings"></div><div id="costs"></div></div>
           </div>
           <div class="card" style="margin-top:16px"><h2>Wochenplan</h2><div id="week"></div></div>
           <div class="card" style="margin-top:16px"><h2>Verlauf</h2><div id="history"></div></div>
@@ -316,6 +320,21 @@ class IrrigationSchedulerPanel extends HTMLElement {
     });
     $("week").addEventListener("focusout", () => setTimeout(() => this._update(), 0));
 
+    $("costs").addEventListener("click", async (ev) => {
+      if (ev.target.dataset?.action !== "recalculate") return;
+      const z = this._zone;
+      const count = uncostedRuns(z).length;
+      const tariff = fmtMoney(z.price_per_m3, z.currency);
+      if (!confirm(`Kosten für ${count} ${count === 1 ? "Lauf" : "Läufe"} ohne Kosten mit dem aktuellen Tarif (${tariff}/m³) berechnen?`)) return;
+      ev.target.disabled = true;
+      try {
+        const result = await this._ws("recalculate_costs");
+        alert(`${result.count} ${result.count === 1 ? "Lauf" : "Läufe"} berechnet.`);
+      } finally {
+        ev.target.disabled = false;
+      }
+    });
+
     $("settings").addEventListener("input", () => {
       this._settingsDirty = true;
       this._renderSettingsButtons();
@@ -361,6 +380,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
     if (zoneChanged || !focused("manual")) this._renderManual(zone);
     this._renderFlags(zone);
     if (zoneChanged || !(this._settingsDirty || focused("settings"))) this._renderSettings(zone);
+    this._renderCosts(zone);
     if (zoneChanged || !focused("week")) this._renderWeek(zone);
     this._renderHistory(zone);
     this._renderedZone = zone.entry_id;
@@ -456,6 +476,25 @@ class IrrigationSchedulerPanel extends HTMLElement {
       <div class="hint">Kosten brauchen einen Wassersensor. Es gilt der Preis zum Zeitpunkt des Laufs.</div>
       <div class="row" id="settings-buttons"></div>`;
     this._renderSettingsButtons();
+  }
+
+  _renderCosts(z) {
+    const el = this.shadowRoot.getElementById("costs");
+    if (!z.water_entity) {
+      el.innerHTML = "";
+      return;
+    }
+    const count = uncostedRuns(z).length;
+    const hint = !(z.price_per_m3 > 0)
+      ? "Zuerst einen Wasser- oder Abwasserpreis speichern."
+      : count
+        ? `${count} ${count === 1 ? "Lauf hat" : "Läufe haben"} eine Wassermenge, aber keine Kosten.`
+        : "Alle Läufe mit Wassermenge haben Kosten.";
+    el.innerHTML = `
+      <div class="row">
+        <button data-action="recalculate" ${count && z.price_per_m3 > 0 ? "" : "disabled"}>Kosten rückwirkend berechnen</button>
+      </div>
+      <div class="hint">${hint} Bereits berechnete Kosten bleiben unverändert.</div>`;
   }
 
   _renderSettingsButtons() {

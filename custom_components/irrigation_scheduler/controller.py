@@ -456,6 +456,22 @@ class IrrigationController:
             entry["cost"] = cost
             self.last_cost = cost
 
+    async def async_recalculate_costs(self) -> int:
+        """Price finished runs that have water but no cost with the current tariff."""
+        price = self.price_per_m3
+        count = 0
+        for entry in self.history:
+            if entry.get("end") is None or entry.get("water_l") is None or "cost" in entry:
+                continue
+            entry["price_m3"] = price
+            entry["cost"] = water_cost(entry["water_l"], price)
+            self.cost_total = round(self.cost_total + entry["cost"], 2)
+            count += 1
+        if count:
+            await self._async_save()
+            self.async_notify()
+        return count
+
     def _schedule_meter_settle(self, entry: dict[str, Any]) -> None:
         async def _settle(_now: datetime) -> None:
             self._unsub_settle.remove(unsub)

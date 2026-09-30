@@ -9,7 +9,7 @@ Custom Integration für eine automatische Bewässerung einer Zone.
 - **Regenprüfung**: vor jedem geplanten Lauf wird `weather.get_forecasts` (stündlich, sonst täglich) der gewählten Wetter-Entity abgefragt. Übersprungen wird, wenn im Vorhersagefenster die Regenmenge oder die maximale Regenwahrscheinlichkeit die Schwelle erreicht. Schwelle `0` deaktiviert das jeweilige Kriterium.
 - **Ventil**: `switch`, `valve` oder `input_boolean`.
 - **Wasserverbrauch (optional)**: Ein Sensor des Bewässerungscomputers wird pro Lauf ausgewertet. Zählerstand (L, m³, gal, ...) wird als Differenz Start/Ende gerechnet und 90 s nach Ende nochmals gelesen, weil Zigbee-Geräte verzögert melden. Ein Zähler-Reset während des Laufs wird erkannt. Durchfluss (L/min, m³/h, ...) wird über die Laufzeit integriert.
-- **Wasserkosten**: Wasser- und Abwasserpreis pro m³ (Währung aus den HA-Einstellungen), Abwasser abschaltbar (z.B. bei separatem Gartenzähler). Kosten werden pro Lauf mit dem Tarif zum Laufzeitpunkt gespeichert. Benötigt einen Wassersensor.
+- **Wasserkosten**: Wasser- und Abwasserpreis pro m³ (Währung aus den HA-Einstellungen), Abwasser abschaltbar (z.B. bei separatem Gartenzähler). Kosten werden pro Lauf mit dem Tarif zum Laufzeitpunkt gespeichert. Benötigt einen Wassersensor. Im Panel berechnet "Kosten rückwirkend berechnen" Läufe mit Wassermenge, aber ohne Kosten (z.B. von vor der Tarif-Einrichtung), mit dem aktuellen Tarif; bereits berechnete Kosten bleiben unverändert.
 - **Neustart-sicher**: Läuft beim HA-Neustart eine Bewässerung, wird das Ende wiederhergestellt bzw. das Ventil geschlossen, falls das Ende bereits verstrichen ist.
 
 ## Sidebar-Panel
