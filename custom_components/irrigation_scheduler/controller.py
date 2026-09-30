@@ -26,9 +26,15 @@ from .const import (
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
+    CONF_WASTEWATER_ENABLED,
+    CONF_WASTEWATER_PRICE,
     CONF_WATER_ENTITY,
+    CONF_WATER_PRICE,
     CONF_WEATHER_ENTITY,
     DEFAULT_DURATION_MIN,
+    DEFAULT_WASTEWATER_ENABLED,
+    DEFAULT_WASTEWATER_PRICE,
+    DEFAULT_WATER_PRICE,
     DEFAULT_WINDOW_END,
     DEFAULT_WINDOW_START,
     DOMAIN,
@@ -48,7 +54,7 @@ from .const import (
     STATUS_WATERING,
     WEEKDAYS,
 )
-from .logic import RainAssessment, assess_rain, compute_next_run
+from .logic import RainAssessment, assess_rain, compute_next_run, water_cost
 from .water import WaterTracker
 
 # Meters often report with a delay; re-read this long after the valve closed.
@@ -86,6 +92,8 @@ class IrrigationController:
         self._current: dict[str, Any] | None = None
         self.water_total_l = 0.0
         self.last_water_l: float | None = None
+        self.cost_total = 0.0
+        self.last_cost: float | None = None
         self._water = (
             WaterTracker(hass, water) if (water := self.config.get(CONF_WATER_ENTITY)) else None
         )
@@ -113,6 +121,18 @@ class IrrigationController:
     @property
     def water_entity(self) -> str | None:
         return self._water.entity_id if self._water else None
+
+    @property
+    def currency(self) -> str:
+        return self.hass.config.currency
+
+    @property
+    def price_per_m3(self) -> float:
+        """Current total tariff: fresh water plus wastewater if enabled."""
+        price = float(self.config.get(CONF_WATER_PRICE, DEFAULT_WATER_PRICE))
+        if self.config.get(CONF_WASTEWATER_ENABLED, DEFAULT_WASTEWATER_ENABLED):
+            price += float(self.config.get(CONF_WASTEWATER_PRICE, DEFAULT_WASTEWATER_PRICE))
+        return price
 
     @property
     def is_running(self) -> bool:
@@ -165,6 +185,10 @@ class IrrigationController:
             "water_entity": self.water_entity,
             "water_total_l": self.water_total_l if self._water else None,
             "last_water_l": self.last_water_l,
+            "currency": self.currency,
+            "price_per_m3": self.price_per_m3,
+            "cost_total": self.cost_total if self._water else None,
+            "last_cost": self.last_cost,
             "history": self.history,
         }
 
@@ -191,6 +215,8 @@ class IrrigationController:
         self.history = stored.get("history") or []
         self.water_total_l = stored.get("water_total_l") or 0.0
         self.last_water_l = stored.get("last_water_l")
+        self.cost_total = stored.get("cost_total") or 0.0
+        self.last_cost = stored.get("last_cost")
         if self.history and self.history[-1].get("end") is None:
             self._current = self.history[-1]
             if self._water:
@@ -327,6 +353,8 @@ class IrrigationController:
 
         self._current = self._add_history(now, source, None, duration_min)
         if self._water:
+            # Tariff at run time; later price changes don't touch this run.
+            self._current["price_m3"] = self.price_per_m3
             self._water.start(self._current)
         self.last_run = now
         self.run_end = now + timedelta(minutes=duration_min)
@@ -422,6 +450,27 @@ class IrrigationController:
         )
         entry["water_booked_l"] = water
         self.last_water_l = water
+        if (price := entry.get("price_m3")) is not None:
+            cost = water_cost(water, price)
+            self.cost_total = round(self.cost_total + cost - entry.get("cost", 0.0), 2)
+            entry["cost"] = cost
+            self.last_cost = cost
+
+    async def async_recalculate_costs(self) -> int:
+        """Price finished runs that have water but no cost with the current tariff."""
+        price = self.price_per_m3
+        count = 0
+        for entry in self.history:
+            if entry.get("end") is None or entry.get("water_l") is None or "cost" in entry:
+                continue
+            entry["price_m3"] = price
+            entry["cost"] = water_cost(entry["water_l"], price)
+            self.cost_total = round(self.cost_total + entry["cost"], 2)
+            count += 1
+        if count:
+            await self._async_save()
+            self.async_notify()
+        return count
 
     def _schedule_meter_settle(self, entry: dict[str, Any]) -> None:
         async def _settle(_now: datetime) -> None:
@@ -443,6 +492,8 @@ class IrrigationController:
                 "history": self.history,
                 "water_total_l": self.water_total_l,
                 "last_water_l": self.last_water_l,
+                "cost_total": self.cost_total,
+                "last_cost": self.last_cost,
             }
         )
 

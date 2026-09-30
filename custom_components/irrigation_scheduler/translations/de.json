@@ -12,10 +12,15 @@
           "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
           "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
           "lookahead_hours": "Vorhersagefenster (Stunden)",
-          "water_entity": "Wasserzähler oder Durchfluss (optional)"
+          "water_entity": "Wasserzähler oder Durchfluss (optional)",
+          "water_price": "Wasserpreis pro m³",
+          "wastewater_price": "Abwasserpreis pro m³",
+          "wastewater_enabled": "Abwasser berechnen"
         },
         "data_description": {
-          "water_entity": "Zählerstand (L, m³) oder Durchfluss (L/min, m³/h), z.B. vom Sonoff-Ventil. Wird pro Lauf ausgewertet."
+          "water_entity": "Zählerstand (L, m³) oder Durchfluss (L/min, m³/h), z.B. vom Sonoff-Ventil. Wird pro Lauf ausgewertet.",
+          "water_price": "In der Währung aus den HA-Einstellungen. Benötigt einen Wassersensor.",
+          "wastewater_enabled": "Ausschalten, wenn Gartenwasser abwasserfrei ist (z.B. separater Gartenzähler)."
         }
       }
     },
@@ -35,10 +40,15 @@
           "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
           "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
           "lookahead_hours": "Vorhersagefenster (Stunden)",
-          "water_entity": "Wasserzähler oder Durchfluss (optional)"
+          "water_entity": "Wasserzähler oder Durchfluss (optional)",
+          "water_price": "Wasserpreis pro m³",
+          "wastewater_price": "Abwasserpreis pro m³",
+          "wastewater_enabled": "Abwasser berechnen"
         },
         "data_description": {
-          "water_entity": "Zählerstand (L, m³) oder Durchfluss (L/min, m³/h), z.B. vom Sonoff-Ventil. Wird pro Lauf ausgewertet."
+          "water_entity": "Zählerstand (L, m³) oder Durchfluss (L/min, m³/h), z.B. vom Sonoff-Ventil. Wird pro Lauf ausgewertet.",
+          "water_price": "In der Währung aus den HA-Einstellungen. Benötigt einen Wassersensor.",
+          "wastewater_enabled": "Ausschalten, wenn Gartenwasser abwasserfrei ist (z.B. separater Gartenzähler)."
         }
       }
     }
@@ -109,6 +119,9 @@
       },
       "water_total": {
         "name": "Wasser gesamt"
+      },
+      "water_cost_total": {
+        "name": "Wasserkosten gesamt"
       }
     },
     "binary_sensor": {

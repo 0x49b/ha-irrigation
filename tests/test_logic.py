@@ -129,3 +129,11 @@ def test_assess_rain_missing_values():
 )
 def test_meter_consumption(start, end, expected):
     assert logic.meter_consumption(start, end) == expected
+
+
+@pytest.mark.parametrize(
+    ("liters", "price", "expected"),
+    [(1000, 2.5, 2.5), (38.4, 4.9, 0.19), (0, 5, 0), (250, 0, 0)],
+)
+def test_water_cost(liters, price, expected):
+    assert logic.water_cost(liters, price) == expected

@@ -17,13 +17,19 @@ from .const import (
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
+    CONF_WASTEWATER_ENABLED,
+    CONF_WASTEWATER_PRICE,
     CONF_WATER_ENTITY,
+    CONF_WATER_PRICE,
     CONF_WEATHER_ENTITY,
     DEFAULT_INTERVAL_HOURS,
     DEFAULT_LOOKAHEAD_HOURS,
     DEFAULT_NAME,
     DEFAULT_RAIN_PROBABILITY,
     DEFAULT_RAIN_THRESHOLD_MM,
+    DEFAULT_WASTEWATER_ENABLED,
+    DEFAULT_WASTEWATER_PRICE,
+    DEFAULT_WATER_PRICE,
     DOMAIN,
 )
 
@@ -58,6 +64,13 @@ def _settings_schema(defaults: dict[str, Any]) -> dict[vol.Marker, Any]:
             CONF_WATER_ENTITY,
             description={"suggested_value": defaults.get(CONF_WATER_ENTITY)},
         ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+        # Tariffs per m³ in the Home Assistant currency.
+        vol.Required(CONF_WATER_PRICE, default=defaults.get(CONF_WATER_PRICE, DEFAULT_WATER_PRICE)):
+            _number(0, 100, 0.01, "/m³"),
+        vol.Required(CONF_WASTEWATER_PRICE, default=defaults.get(CONF_WASTEWATER_PRICE, DEFAULT_WASTEWATER_PRICE)):
+            _number(0, 100, 0.01, "/m³"),
+        vol.Required(CONF_WASTEWATER_ENABLED, default=defaults.get(CONF_WASTEWATER_ENABLED, DEFAULT_WASTEWATER_ENABLED)):
+            selector.BooleanSelector(),
     }
 
 

@@ -18,7 +18,10 @@ from .const import (
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
+    CONF_WASTEWATER_ENABLED,
+    CONF_WASTEWATER_PRICE,
     CONF_WATER_ENTITY,
+    CONF_WATER_PRICE,
     CONF_WEATHER_ENTITY,
     DOMAIN,
     MAX_DURATION_MIN,
@@ -36,6 +39,9 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_RAIN_PROBABILITY): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
         vol.Optional(CONF_LOOKAHEAD_HOURS): vol.All(vol.Coerce(float), vol.Range(min=1, max=72)),
         vol.Optional(CONF_WATER_ENTITY): vol.Any(None, "", cv.entity_domain("sensor")),
+        vol.Optional(CONF_WATER_PRICE): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+        vol.Optional(CONF_WASTEWATER_PRICE): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+        vol.Optional(CONF_WASTEWATER_ENABLED): bool,
     }
 )
 
@@ -51,6 +57,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_update_options,
         ws_run,
         ws_stop,
+        ws_recalculate_costs,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -198,3 +205,17 @@ async def ws_stop(
         return
     await controller.async_stop()
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/recalculate_costs", vol.Required("entry_id"): str}
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_recalculate_costs(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    if not (controller := _get_controller(hass, connection, msg)):
+        return
+    count = await controller.async_recalculate_costs()
+    connection.send_result(msg["id"], {"count": count})

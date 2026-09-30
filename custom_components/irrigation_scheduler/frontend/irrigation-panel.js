@@ -36,6 +36,19 @@ const CHART_DAYS = 30;
 const WATER_UNITS = ["L", "mL", "m³", "gal", "ft³", "CCF", "MCF", "fl. oz.",
   "L/min", "L/h", "L/s", "mL/s", "m³/h", "m³/min", "m³/s", "gal/min", "gal/h", "gal/d", "ft³/min"];
 
+const fmtMoney = (v, currency) => {
+  if (v === null || v === undefined) return "–";
+  try {
+    return Number(v).toLocaleString("de", { style: "currency", currency: currency || "EUR" });
+  } catch (e) {
+    return `${fmtNum(v, 2)} ${currency || ""}`;
+  }
+};
+
+// Finished runs with a measured amount but no cost (e.g. from before tariffs existed).
+const uncostedRuns = (z) =>
+  (z?.history || []).filter((h) => h.end != null && h.water_l != null && h.cost == null);
+
 const fmtLiters = (v) => (v === null || v === undefined ? "–" : `${fmtNum(v, v < 100 ? 1 : 0)} L`);
 
 const esc = (v) =>
@@ -90,7 +103,7 @@ const STYLE = `
     font-size: 20px;
   }
   .toolbar .title { flex: 1; }
-  .content { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .content { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
   .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
   .tabs button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .card {
@@ -101,7 +114,9 @@ const STYLE = `
     padding: 16px;
   }
   .card h2 { margin: 0 0 12px; font-size: 18px; font-weight: 500; }
-  .grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
+  .grid2 > *, #main > * { min-width: 0; }
+  .kv dd { overflow-wrap: anywhere; }
   .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
   .kv dt { color: var(--secondary-text-color); }
   .kv dd { margin: 0; }
@@ -136,6 +151,7 @@ const STYLE = `
   .slots { color: var(--secondary-text-color); font-size: 13px; }
   .form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; align-items: center; }
   .form select, .form input { max-width: 100%; }
+  .form select { width: 100%; min-width: 0; }
   .hint { color: var(--secondary-text-color); font-size: 13px; }
   .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 16px; }
   .tile .v { font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -256,7 +272,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
         <div id="main">
           <div class="grid2">
             <div class="card"><h2>Status</h2><div id="status"></div><div id="manual"></div></div>
-            <div class="card"><h2>Einstellungen</h2><div id="flags"></div><div id="settings"></div></div>
+            <div class="card"><h2>Einstellungen</h2><div id="flags"></div><div id="settings"></div><div id="costs"></div></div>
           </div>
           <div class="card" style="margin-top:16px"><h2>Wochenplan</h2><div id="week"></div></div>
           <div class="card" style="margin-top:16px"><h2>Verlauf</h2><div id="history"></div></div>
@@ -304,6 +320,21 @@ class IrrigationSchedulerPanel extends HTMLElement {
     });
     $("week").addEventListener("focusout", () => setTimeout(() => this._update(), 0));
 
+    $("costs").addEventListener("click", async (ev) => {
+      if (ev.target.dataset?.action !== "recalculate") return;
+      const z = this._zone;
+      const count = uncostedRuns(z).length;
+      const tariff = fmtMoney(z.price_per_m3, z.currency);
+      if (!confirm(`Kosten für ${count} ${count === 1 ? "Lauf" : "Läufe"} ohne Kosten mit dem aktuellen Tarif (${tariff}/m³) berechnen?`)) return;
+      ev.target.disabled = true;
+      try {
+        const result = await this._ws("recalculate_costs");
+        alert(`${result.count} ${result.count === 1 ? "Lauf" : "Läufe"} berechnet.`);
+      } finally {
+        ev.target.disabled = false;
+      }
+    });
+
     $("settings").addEventListener("input", () => {
       this._settingsDirty = true;
       this._renderSettingsButtons();
@@ -317,7 +348,8 @@ class IrrigationSchedulerPanel extends HTMLElement {
       } else if (action === "save") {
         const options = {};
         root.querySelectorAll("#settings [data-option]").forEach((el) => {
-          options[el.dataset.option] = el.type === "number" ? Number(el.value) : el.value;
+          options[el.dataset.option] =
+            el.type === "number" ? Number(el.value) : el.type === "checkbox" ? el.checked : el.value;
         });
         ev.target.disabled = true;
         try {
@@ -348,6 +380,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
     if (zoneChanged || !focused("manual")) this._renderManual(zone);
     this._renderFlags(zone);
     if (zoneChanged || !(this._settingsDirty || focused("settings"))) this._renderSettings(zone);
+    this._renderCosts(zone);
     if (zoneChanged || !focused("week")) this._renderWeek(zone);
     this._renderHistory(zone);
     this._renderedZone = zone.entry_id;
@@ -374,7 +407,9 @@ class IrrigationSchedulerPanel extends HTMLElement {
           z.next_run ? `${fmtDateTime(z.next_run)}, ${fmtNum(z.next_run_duration)} min` : "keiner geplant"
         }${z.auto_enabled ? "" : " (Automatik aus)"}</dd>
         <dt>Letzter Lauf</dt><dd>${fmtDateTime(z.last_run)}${z.water_entity ? `, ${fmtLiters(z.last_water_l)}` : ""}</dd>
-        ${z.water_entity ? `<dt>Wasser gesamt</dt><dd>${fmtLiters(z.water_total_l)}</dd>` : ""}
+        ${z.water_entity ? `<dt>Wasser gesamt</dt><dd>${fmtLiters(z.water_total_l)}${
+          z.price_per_m3 > 0 || z.cost_total > 0 ? `, ${fmtMoney(z.cost_total, z.currency)}` : ""
+        }</dd>` : ""}
         <dt>Regen (${fmtNum(z.options.lookahead_hours)} h)</dt><dd>${rainText}${z.rain_check_enabled ? "" : " (Prüfung aus)"}</dd>
       </dl>`;
   }
@@ -433,9 +468,33 @@ class IrrigationSchedulerPanel extends HTMLElement {
           filter: (st) => WATER_UNITS.includes(st?.attributes?.unit_of_measurement),
           empty: "– keiner –",
         })}</select>
+        <label>Wasserpreis</label>${num("water_price", 0, 100, 0.01, `${esc(z.currency)}/m³`)}
+        <label>Abwasserpreis</label>${num("wastewater_price", 0, 100, 0.01, `${esc(z.currency)}/m³`)}
+        <label>Abwasser</label>
+        <label class="toggle"><input type="checkbox" data-option="wastewater_enabled" ${o.wastewater_enabled !== false ? "checked" : ""}> berechnen</label>
       </div>
+      <div class="hint">Kosten brauchen einen Wassersensor. Es gilt der Preis zum Zeitpunkt des Laufs.</div>
       <div class="row" id="settings-buttons"></div>`;
     this._renderSettingsButtons();
+  }
+
+  _renderCosts(z) {
+    const el = this.shadowRoot.getElementById("costs");
+    if (!z.water_entity) {
+      el.innerHTML = "";
+      return;
+    }
+    const count = uncostedRuns(z).length;
+    const hint = !(z.price_per_m3 > 0)
+      ? "Zuerst einen Wasser- oder Abwasserpreis speichern."
+      : count
+        ? `${count} ${count === 1 ? "Lauf hat" : "Läufe haben"} eine Wassermenge, aber keine Kosten.`
+        : "Alle Läufe mit Wassermenge haben Kosten.";
+    el.innerHTML = `
+      <div class="row">
+        <button data-action="recalculate" ${count && z.price_per_m3 > 0 ? "" : "disabled"}>Kosten rückwirkend berechnen</button>
+      </div>
+      <div class="hint">${hint} Bereits berechnete Kosten bleiben unverändert.</div>`;
   }
 
   _renderSettingsButtons() {
@@ -480,6 +539,8 @@ class IrrigationSchedulerPanel extends HTMLElement {
     const sum = (list) => list.reduce((acc, h) => acc + (h.actual_min || 0), 0);
     const water = (list) => list.reduce((acc, h) => acc + (h.water_l || 0), 0);
     const showWater = !!z.water_entity || history.some((h) => h.water_l != null);
+    const cost = (list) => list.reduce((acc, h) => acc + (h.cost || 0), 0);
+    const showCost = showWater && (z.price_per_m3 > 0 || history.some((h) => h.cost > 0));
     const in7 = done.filter((h) => new Date(h.start).getTime() >= since(7));
     const in30 = done.filter((h) => new Date(h.start).getTime() >= since(30));
     const skipped30 = history.filter((h) => h.result === "skipped_rain" && new Date(h.start).getTime() >= since(30));
@@ -493,6 +554,9 @@ class IrrigationSchedulerPanel extends HTMLElement {
         ${showWater ? `
         <div class="tile"><div class="v">${fmtLiters(water(in7))}</div><div class="l">Wasser letzte 7 Tage</div></div>
         <div class="tile"><div class="v">${fmtLiters(water(in30))}</div><div class="l">Wasser letzte 30 Tage</div></div>` : ""}
+        ${showCost ? `
+        <div class="tile"><div class="v">${fmtMoney(cost(in7), z.currency)}</div><div class="l">Kosten letzte 7 Tage</div></div>
+        <div class="tile"><div class="v">${fmtMoney(cost(in30), z.currency)}</div><div class="l">Kosten letzte 30 Tage</div></div>` : ""}
       </div>`;
 
     const rows = history
@@ -508,10 +572,11 @@ class IrrigationSchedulerPanel extends HTMLElement {
             : `${fmtNum(h.rain_mm, 1)} mm / ${h.rain_probability == null ? "–" : fmtNum(h.rain_probability)} %`;
         return `<tr>
           <td>${fmtDate(h.start)}</td>
-          <td>${fmtTime(h.start)}</td>
+          <td class="hide-narrow">${fmtTime(h.start)}</td>
           <td class="hide-narrow">${running ? "–" : fmtTime(h.end)}</td>
           <td class="num">${dur}</td>
           ${showWater ? `<td class="num">${h.water_l == null ? "–" : fmtLiters(h.water_l)}</td>` : ""}
+          ${showCost ? `<td class="num">${h.cost == null ? "–" : fmtMoney(h.cost, z.currency)}</td>` : ""}
           <td class="hide-narrow">${esc(SOURCE[h.source] || h.source)}</td>
           <td>${esc(result)}</td>
           <td class="hide-narrow">${rain}</td>
@@ -521,25 +586,25 @@ class IrrigationSchedulerPanel extends HTMLElement {
 
     const table = history.length
       ? `<div class="scroll"><table>
-          <thead><tr><th>Datum</th><th>Start</th><th class="hide-narrow">Ende</th><th class="num">Minuten</th>${showWater ? `<th class="num">Wasser</th>` : ""}
+          <thead><tr><th>Datum</th><th class="hide-narrow">Start</th><th class="hide-narrow">Ende</th><th class="num">Minuten</th>${showWater ? `<th class="num">Wasser</th>` : ""}${showCost ? `<th class="num">Kosten</th>` : ""}
           <th class="hide-narrow">Quelle</th><th>Ergebnis</th><th class="hide-narrow">Regen</th></tr></thead>
           <tbody>${rows}</tbody></table></div>`
       : `<div class="empty">Noch keine Läufe aufgezeichnet.</div>`;
 
     const el = this.shadowRoot.getElementById("history");
     el.innerHTML = `${tiles}<div class="chart" id="chart"></div>${table}`;
-    this._renderChart(el.querySelector("#chart"), history, showWater);
+    this._renderChart(el.querySelector("#chart"), history, showWater, showCost ? z.currency : null);
   }
 
   // Minutes watered per day, last CHART_DAYS days. Single series: no legend, hover tooltip per day.
-  _renderChart(container, history, showWater) {
+  _renderChart(container, history, showWater, currency) {
     const days = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     for (let i = CHART_DAYS - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-      days.push({ key: dayKey(d), date: d, minutes: 0, runs: 0, skipped: 0, liters: 0 });
+      days.push({ key: dayKey(d), date: d, minutes: 0, runs: 0, skipped: 0, liters: 0, cost: 0 });
     }
     const byKey = Object.fromEntries(days.map((d) => [d.key, d]));
     for (const h of history) {
@@ -549,6 +614,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
         d.minutes += h.actual_min;
         d.runs += 1;
         d.liters += h.water_l || 0;
+        d.cost += h.cost || 0;
       } else if (h.result === "skipped_rain") {
         d.skipped += 1;
       }
@@ -609,7 +675,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
       svg.querySelector(`.bar[data-i="${i}"]`)?.classList.add("hover");
       tip.innerHTML = `<strong>${d.date.toLocaleDateString("de", { weekday: "short", day: "2-digit", month: "2-digit" })}</strong><br>
         ${fmtNum(d.minutes, 1)} min in ${d.runs} ${d.runs === 1 ? "Lauf" : "Läufen"}
-        ${showWater && d.runs ? `<br>${fmtLiters(d.liters)}` : ""}
+        ${showWater && d.runs ? `<br>${fmtLiters(d.liters)}${currency ? `, ${fmtMoney(d.cost, currency)}` : ""}` : ""}
         ${d.skipped ? `<br><span class="muted">${d.skipped}× wegen Regen übersprungen</span>` : ""}`;
       const box = container.getBoundingClientRect();
       const svgBox = svg.getBoundingClientRect();

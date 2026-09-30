@@ -120,3 +120,8 @@ def assess_rain(
 def meter_consumption(start_l: float, end_l: float) -> float:
     """Difference of two meter readings; a lower end value means the meter was reset."""
     return end_l - start_l if end_l >= start_l else end_l
+
+
+def water_cost(liters: float, price_per_m3: float) -> float:
+    """Cost of `liters` at `price_per_m3`, rounded to 1/100 of the currency."""
+    return round(liters / 1000 * price_per_m3, 2)
