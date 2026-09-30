@@ -18,7 +18,10 @@ from .const import (
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
+    CONF_WASTEWATER_ENABLED,
+    CONF_WASTEWATER_PRICE,
     CONF_WATER_ENTITY,
+    CONF_WATER_PRICE,
     CONF_WEATHER_ENTITY,
     BOUND_MODES,
     DOMAIN,
@@ -38,6 +41,9 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_RAIN_PROBABILITY): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
         vol.Optional(CONF_LOOKAHEAD_HOURS): vol.All(vol.Coerce(float), vol.Range(min=1, max=72)),
         vol.Optional(CONF_WATER_ENTITY): vol.Any(None, "", cv.entity_domain("sensor")),
+        vol.Optional(CONF_WATER_PRICE): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+        vol.Optional(CONF_WASTEWATER_PRICE): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+        vol.Optional(CONF_WASTEWATER_ENABLED): bool,
     }
 )
 

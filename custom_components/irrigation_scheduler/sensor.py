@@ -81,6 +81,13 @@ WATER_SENSORS = (
         value_fn=lambda c: c.last_water_l,
     ),
     IrrigationSensorDescription(
+        key="water_cost_total",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
+        suggested_display_precision=2,
+        value_fn=lambda c: c.cost_total,
+    ),
+    IrrigationSensorDescription(
         key="water_total",
         device_class=SensorDeviceClass.WATER,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -108,6 +115,8 @@ class IrrigationSensor(IrrigationEntity, SensorEntity):
     ) -> None:
         super().__init__(controller, description.key)
         self.entity_description = description
+        if description.device_class is SensorDeviceClass.MONETARY:
+            self._attr_native_unit_of_measurement = controller.currency
 
     @property
     def native_value(self) -> Any:
