@@ -91,6 +91,12 @@ const STYLE = `
   :host {
     display: block;
     min-height: 100vh;
+    /* Safety net: nothing inside may widen the page (iOS WebKit sizes grids/selects by content). */
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  :host {
     background: var(--primary-background-color);
     color: var(--primary-text-color);
     font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
@@ -117,7 +123,7 @@ const STYLE = `
   .grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
   .grid2 > *, #main > * { min-width: 0; }
   .kv dd { overflow-wrap: anywhere; }
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+  .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; }
   .kv dt { color: var(--secondary-text-color); }
   .kv dd { margin: 0; }
   .badge {
@@ -140,6 +146,7 @@ const STYLE = `
     border: 1px solid var(--divider-color, #ccc);
     background: var(--secondary-background-color, #fafafa); color: var(--primary-text-color);
   }
+  select { max-width: 100%; text-overflow: ellipsis; }
   input[type=number] { width: 80px; }
   label.toggle { display: inline-flex; gap: 6px; align-items: center; margin-right: 16px; cursor: pointer; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -153,7 +160,7 @@ const STYLE = `
   .form select, .form input { max-width: 100%; }
   .form select { width: 100%; min-width: 0; }
   .hint { color: var(--secondary-text-color); font-size: 13px; }
-  .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 16px; }
+  .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); margin-bottom: 16px; }
   .tile .v { font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
   .tile .l { color: var(--secondary-text-color); font-size: 13px; }
   .chart { position: relative; }
@@ -177,12 +184,14 @@ const STYLE = `
   .empty { color: var(--secondary-text-color); padding: 24px; text-align: center; }
   @media (max-width: 600px) {
     .content { padding: 8px; }
-    .form { grid-template-columns: 1fr; gap: 4px; }
+    .form { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    /* iOS zooms into inputs below 16px, which makes the page pan sideways. */
+    input, select { font-size: 16px; }
     .hide-narrow { display: none; }
     .narrow-only { display: inline; }
     th, td { padding: 6px 4px; }
     #week input[type=number] { width: 52px; }
-    #week input[type=time] { width: 96px; padding: 5px 4px; }
+    #week input[type=time] { width: 108px; padding: 5px 4px; }
   }
 `;
 
