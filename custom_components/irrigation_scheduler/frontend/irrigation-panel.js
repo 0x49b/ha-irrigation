@@ -45,6 +45,18 @@ const fmtMoney = (v, currency) => {
   }
 };
 
+// Searchable entity pickers in the settings form.
+const PICKERS = {
+  valve_entity: { domains: ["switch", "valve", "input_boolean"] },
+  weather_entity: { domains: ["weather"] },
+  water_entity: {
+    domains: ["sensor"],
+    filter: (st) => WATER_UNITS.includes(st?.attributes?.unit_of_measurement),
+    empty: "– keiner –",
+  },
+};
+const PICKER_LIMIT = 50;
+
 // Finished runs with a measured amount but no cost (e.g. from before tariffs existed).
 const uncostedRuns = (z) =>
   (z?.history || []).filter((h) => h.end != null && h.water_l != null && h.cost == null);
@@ -147,6 +159,22 @@ const STYLE = `
     background: var(--secondary-background-color, #fafafa); color: var(--primary-text-color);
   }
   select { max-width: 100%; text-overflow: ellipsis; }
+  .picker { position: relative; min-width: 0; }
+  .picker input.picker-input { width: 100%; }
+  .picker-list {
+    position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 5;
+    max-height: 260px; overflow-y: auto;
+    background: var(--card-background-color, #fff); color: var(--primary-text-color);
+    border: 1px solid var(--divider-color, #ccc); border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  }
+  .picker-list .opt {
+    padding: 8px 10px; cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .picker-list .opt.active, .picker-list .opt:hover { background: var(--secondary-background-color, #eee); }
+  .picker-list .opt.selected { font-weight: 600; }
+  .picker-list .none { padding: 8px 10px; color: var(--secondary-text-color); }
   input[type=number] { width: 80px; }
   label.toggle { display: inline-flex; gap: 6px; align-items: center; margin-right: 16px; cursor: pointer; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -344,10 +372,15 @@ class IrrigationSchedulerPanel extends HTMLElement {
       }
     });
 
-    $("settings").addEventListener("input", () => {
+    $("settings").addEventListener("input", (ev) => {
+      if (ev.target.classList.contains("picker-input")) {
+        this._openPicker(ev.target.closest(".picker"), ev.target.value);
+        return;
+      }
       this._settingsDirty = true;
       this._renderSettingsButtons();
     });
+    this._bindPickers(root);
     $("settings").addEventListener("click", async (ev) => {
       const action = ev.target.dataset?.action;
       if (action === "reset") {
@@ -443,19 +476,112 @@ class IrrigationSchedulerPanel extends HTMLElement {
       </div>`;
   }
 
-  _entityOptions(domains, selected, { filter = () => true, empty = null } = {}) {
+  _entityName(id) {
+    return this._hass?.states?.[id]?.attributes?.friendly_name || id;
+  }
+
+  // Candidates for a picker: [{id, name}], sorted by name, optional empty entry first.
+  _pickerCandidates(key) {
+    const cfg = PICKERS[key];
     const states = this._hass?.states || {};
-    const ids = Object.keys(states)
-      .filter((id) => domains.includes(id.split(".")[0]) && filter(states[id]))
-      .sort();
-    if (selected && !ids.includes(selected)) ids.unshift(selected);
-    const emptyOption = empty === null ? "" : `<option value="" ${selected ? "" : "selected"}>${esc(empty)}</option>`;
-    return emptyOption + ids
-      .map((id) => {
-        const name = states[id]?.attributes?.friendly_name;
-        return `<option value="${esc(id)}" ${id === selected ? "selected" : ""}>${esc(name ? `${name} (${id})` : id)}</option>`;
-      })
-      .join("");
+    const list = Object.keys(states)
+      .filter((id) => cfg.domains.includes(id.split(".")[0]) && (!cfg.filter || cfg.filter(states[id])))
+      .map((id) => ({ id, name: this._entityName(id) }))
+      .sort((x, y) => x.name.localeCompare(y.name, "de"));
+    return cfg.empty ? [{ id: "", name: cfg.empty }, ...list] : list;
+  }
+
+  _picker(key, value) {
+    const cfg = PICKERS[key];
+    const label = value ? this._entityName(value) : cfg.empty || "";
+    return `<div class="picker" data-picker="${key}">
+      <input type="hidden" data-option="${key}" value="${esc(value || "")}">
+      <input class="picker-input" type="search" autocomplete="off" spellcheck="false"
+        placeholder="Suchen…" value="${esc(label)}" role="combobox" aria-expanded="false">
+      <div class="picker-list" role="listbox" hidden></div>
+    </div>`;
+  }
+
+  _openPicker(picker, query = "") {
+    const key = picker.dataset.picker;
+    const current = picker.querySelector("[data-option]").value;
+    const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = this._pickerCandidates(key).filter((c) => {
+      const hay = `${c.name} ${c.id}`.toLowerCase();
+      return tokens.every((t) => hay.includes(t));
+    });
+    const list = picker.querySelector(".picker-list");
+    list.innerHTML = matches.length
+      ? matches
+          .slice(0, PICKER_LIMIT)
+          .map((c, i) => `<div class="opt ${i === 0 ? "active" : ""} ${c.id === current ? "selected" : ""}" role="option" tabindex="-1" data-value="${esc(c.id)}">${esc(c.name)}</div>`)
+          .join("") +
+        (matches.length > PICKER_LIMIT ? `<div class="none">${matches.length - PICKER_LIMIT} weitere, Suche verfeinern</div>` : "")
+      : `<div class="none">Keine Treffer</div>`;
+    list.hidden = false;
+    picker.querySelector(".picker-input").setAttribute("aria-expanded", "true");
+  }
+
+  _closePicker(picker) {
+    const list = picker.querySelector(".picker-list");
+    list.hidden = true;
+    const input = picker.querySelector(".picker-input");
+    input.setAttribute("aria-expanded", "false");
+    // Show the committed selection again, discarding a half-typed search.
+    const value = picker.querySelector("[data-option]").value;
+    input.value = value ? this._entityName(value) : PICKERS[picker.dataset.picker].empty || "";
+  }
+
+  _choosePicker(picker, value) {
+    const hidden = picker.querySelector("[data-option]");
+    if (hidden.value !== value) {
+      hidden.value = value;
+      this._settingsDirty = true;
+      this._renderSettingsButtons();
+    }
+    this._closePicker(picker);
+  }
+
+  _bindPickers(root) {
+    const settings = root.getElementById("settings");
+    const pickerOf = (el) => el.closest?.(".picker");
+    settings.addEventListener("focusin", (ev) => {
+      const picker = pickerOf(ev.target);
+      if (picker && ev.target.classList.contains("picker-input")) {
+        ev.target.select();
+        this._openPicker(picker);
+      }
+    });
+    settings.addEventListener("focusout", (ev) => {
+      const picker = pickerOf(ev.target);
+      if (picker && !picker.contains(ev.relatedTarget)) this._closePicker(picker);
+    });
+    // Options are focusable (tabindex -1), so tapping one keeps focus inside the
+    // picker and the list stays open until the click; touch-scrolling the list never selects.
+    settings.addEventListener("click", (ev) => {
+      const opt = ev.target.closest?.(".picker-list .opt");
+      if (opt) this._choosePicker(pickerOf(opt), opt.dataset.value);
+    });
+    settings.addEventListener("keydown", (ev) => {
+      const picker = pickerOf(ev.target);
+      if (!picker || !ev.target.classList.contains("picker-input")) return;
+      const list = picker.querySelector(".picker-list");
+      const opts = [...list.querySelectorAll(".opt")];
+      const idx = opts.findIndex((o) => o.classList.contains("active"));
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        if (list.hidden) return this._openPicker(picker, ev.target.value);
+        const next = Math.max(0, Math.min(opts.length - 1, idx + (ev.key === "ArrowDown" ? 1 : -1)));
+        opts.forEach((o, i) => o.classList.toggle("active", i === next));
+        opts[next]?.scrollIntoView({ block: "nearest" });
+      } else if (ev.key === "Enter") {
+        ev.preventDefault();
+        if (!list.hidden && opts[idx]) this._choosePicker(picker, opts[idx].dataset.value);
+      } else if (ev.key === "Escape") {
+        this._closePicker(picker);
+        ev.target.blur();
+      }
+    });
   }
 
   _renderSettings(z) {
@@ -465,18 +591,15 @@ class IrrigationSchedulerPanel extends HTMLElement {
     this.shadowRoot.getElementById("settings").innerHTML = `
       <div class="form">
         <label>Ventil</label>
-        <select data-option="valve_entity">${this._entityOptions(["switch", "valve", "input_boolean"], o.valve_entity)}</select>
+        ${this._picker("valve_entity", o.valve_entity)}
         <label>Wetter</label>
-        <select data-option="weather_entity">${this._entityOptions(["weather"], o.weather_entity)}</select>
+        ${this._picker("weather_entity", o.weather_entity)}
         <label>Intervall</label>${num("interval_hours", 1, 24, 1, "h")}
         <label>Regenmenge ab</label>${num("rain_threshold_mm", 0, 100, 0.1, "mm (0 = aus)")}
         <label>Regenwahrsch. ab</label>${num("rain_probability", 0, 100, 1, "% (0 = aus)")}
         <label>Vorhersagefenster</label>${num("lookahead_hours", 1, 72, 1, "h")}
         <label>Wassersensor</label>
-        <select data-option="water_entity">${this._entityOptions(["sensor"], o.water_entity, {
-          filter: (st) => WATER_UNITS.includes(st?.attributes?.unit_of_measurement),
-          empty: "– keiner –",
-        })}</select>
+        ${this._picker("water_entity", o.water_entity)}
         <label>Wasserpreis</label>${num("water_price", 0, 100, 0.01, `${esc(z.currency)}/m³`)}
         <label>Abwasserpreis</label>${num("wastewater_price", 0, 100, 0.01, `${esc(z.currency)}/m³`)}
         <label>Abwasser</label>
