@@ -2,8 +2,8 @@
 
 from datetime import datetime, time, timedelta
 import importlib.util
-import sys
 from pathlib import Path
+import sys
 from zoneinfo import ZoneInfo
 
 import pytest

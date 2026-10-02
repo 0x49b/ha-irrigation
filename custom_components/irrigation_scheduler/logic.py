@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from itertools import pairwise
 from typing import Any
 
 ONE_DAY = timedelta(days=1)
@@ -147,7 +148,7 @@ def rained_recently(kind: str, values: Iterable[Any], rainy: frozenset[str] = fr
     if kind == "rate":
         return any(n > 0 for n in numbers)
     # Accumulating amount: any increase counts; a drop is a counter reset.
-    return any(b > a for a, b in zip(numbers, numbers[1:]))
+    return any(b > a for a, b in pairwise(numbers))
 
 
 def window_end_for_slot(slot: datetime, start: time, end: time) -> datetime:

@@ -54,9 +54,16 @@ HACS: Repository als *Custom repository* (Typ *Integration*) hinzufügen, oder `
 
 Mehrere Zonen: Integration mehrfach mit unterschiedlichen Ventilen einrichten.
 
-## Tests
+## Entwicklung
+
+Dev-Tools werden mit [uv](https://docs.astral.sh/uv/) verwaltet (`pyproject.toml` + `uv.lock`). Die Integration selbst hat keine Python-Abhängigkeiten.
 
 ```bash
-pip install pytest
-pytest tests
+uv sync            # dev dependencies installieren
+uv run ruff check .
+uv run pytest
 ```
+
+Die CI (`.github/workflows/ci.yml`) führt bei jedem PR Ruff, Pytest, einen Syntax-Check des Panels sowie hassfest und die HACS-Validierung aus.
+
+Abhängigkeits-Updates kommen über [Renovate](https://docs.renovatebot.com/) (`renovate.json`): Python-Dev-Tools inkl. `uv.lock` und GitHub Actions. Minor- und Patch-Updates werden bei grüner CI automatisch gemergt, Major-Updates brauchen ein Review.

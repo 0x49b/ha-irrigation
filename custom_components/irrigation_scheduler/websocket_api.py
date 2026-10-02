@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-import voluptuous as vol
-
 from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+import voluptuous as vol
 
 from .const import (
+    CONF_INTERVAL_HOURS,
+    CONF_LOOKAHEAD_HOURS,
     CONF_MODE,
     CONF_MOISTURE_SENSORS,
     CONF_MOISTURE_THRESHOLD,
@@ -21,11 +22,8 @@ from .const import (
     CONF_NEXT_RAIN_PROBABILITY,
     CONF_PAST_RAIN_MINUTES,
     CONF_POSTPONE_MINUTES,
-    CONF_RAIN_SENSOR,
-    MODES,
-    CONF_INTERVAL_HOURS,
-    CONF_LOOKAHEAD_HOURS,
     CONF_RAIN_PROBABILITY,
+    CONF_RAIN_SENSOR,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
     CONF_WASTEWATER_ENABLED,
@@ -35,6 +33,7 @@ from .const import (
     CONF_WEATHER_ENTITY,
     DOMAIN,
     MAX_DURATION_MIN,
+    MODES,
     SIGNAL_UPDATE,
     WEEKDAYS,
 )
