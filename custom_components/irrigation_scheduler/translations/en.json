@@ -32,14 +32,12 @@
     "step": {
       "init": {
         "title": "Settings",
-        "description": "Per weekday: first run at 'from', then every n hours while the start is before 'to'. Windows and durations are set via the device entities.",
+        "description": "Common settings and mode. The next step shows the settings of the chosen mode; the other mode's settings are kept.",
         "data": {
+          "mode": "Mode",
           "valve_entity": "Valve",
           "weather_entity": "Weather entity",
           "interval_hours": "Interval (hours)",
-          "rain_threshold_mm": "Rain amount threshold (mm, 0 = off)",
-          "rain_probability": "Rain probability threshold (%, 0 = off)",
-          "lookahead_hours": "Forecast window (hours)",
           "water_entity": "Water meter or flow sensor (optional)",
           "water_price": "Water price per m³",
           "wastewater_price": "Wastewater price per m³",
@@ -49,6 +47,34 @@
           "water_entity": "Volume meter (L, m³) or flow rate (L/min, m³/h), e.g. from the valve. Evaluated per run.",
           "water_price": "In the Home Assistant currency. Requires a water sensor.",
           "wastewater_enabled": "Turn off if garden water is exempt from wastewater fees."
+        }
+      },
+      "static": {
+        "title": "Static mode",
+        "description": "Fixed schedule. A run is skipped if enough rain is forecast within the window.",
+        "data": {
+          "rain_threshold_mm": "Rain amount threshold (mm, 0 = off)",
+          "rain_probability": "Rain probability threshold (%, 0 = off)",
+          "lookahead_hours": "Forecast window (hours)"
+        }
+      },
+      "dynamic": {
+        "title": "Dynamic mode",
+        "description": "Before each scheduled run: check soil moisture and rain shortly before and after.",
+        "data": {
+          "rain_sensor": "Rain sensor (optional)",
+          "past_rain_minutes": "Check past rain (minutes)",
+          "next_rain_minutes": "Check upcoming rain (minutes)",
+          "next_rain_mm": "Rain amount from (mm)",
+          "next_rain_probability": "Rain probability from (%)",
+          "postpone_minutes": "Postpone by (minutes)",
+          "moisture_sensors": "Soil moisture sensors",
+          "moisture_threshold": "Soil moisture threshold (%)"
+        },
+        "data_description": {
+          "rain_sensor": "Binary (rain yes/no) or precipitation in mm or mm/h. Empty: weather entity condition history.",
+          "moisture_sensors": "Watering only happens if the average is below the threshold.",
+          "postpone_minutes": "On rain before or after, the run is postponed while it stays within the day window and before the next slot; otherwise skipped."
         }
       }
     }
@@ -96,7 +122,9 @@
           "watering": "Watering",
           "skipped_rain": "Skipped (rain)",
           "skipped_no_duration": "Skipped (no duration)",
-          "error": "Error"
+          "error": "Error",
+          "postponed": "Postponed",
+          "skipped_moisture": "Skipped (soil moist)"
         }
       },
       "next_run": {
@@ -171,6 +199,14 @@
       },
       "window_end_sun": {
         "name": "Sunday to"
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "static": "Static",
+        "dynamic": "Dynamic"
       }
     }
   }

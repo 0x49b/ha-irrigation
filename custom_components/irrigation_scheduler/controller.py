@@ -23,6 +23,15 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_INTERVAL_HOURS,
     CONF_LOOKAHEAD_HOURS,
+    CONF_MODE,
+    CONF_MOISTURE_SENSORS,
+    CONF_MOISTURE_THRESHOLD,
+    CONF_NEXT_RAIN_MINUTES,
+    CONF_NEXT_RAIN_MM,
+    CONF_NEXT_RAIN_PROBABILITY,
+    CONF_PAST_RAIN_MINUTES,
+    CONF_POSTPONE_MINUTES,
+    CONF_RAIN_SENSOR,
     CONF_RAIN_PROBABILITY,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
@@ -39,7 +48,11 @@ from .const import (
     DEFAULT_WINDOW_START,
     DOMAIN,
     HISTORY_DAYS,
+    MODE_DYNAMIC,
+    OPTION_DEFAULTS,
     OPTION_KEYS,
+    RAIN_RATE_UNITS,
+    RAINY_CONDITIONS,
     RAIN_REFRESH_MINUTES,
     RESULT_COMPLETED,
     RESULT_ERROR,
@@ -49,12 +62,23 @@ from .const import (
     SOURCE_MANUAL,
     STATUS_ERROR,
     STATUS_IDLE,
+    STATUS_POSTPONED,
+    STATUS_SKIPPED_MOISTURE,
     STATUS_SKIPPED_NO_DURATION,
     STATUS_SKIPPED_RAIN,
     STATUS_WATERING,
     WEEKDAYS,
 )
-from .logic import RainAssessment, assess_rain, compute_next_run, water_cost
+from .logic import (
+    RainAssessment,
+    assess_rain,
+    average,
+    compute_next_run,
+    postpone_target,
+    rained_recently,
+    water_cost,
+    window_end_for_slot,
+)
 from .water import WaterTracker
 
 # Meters often report with a delay; re-read this long after the valve closed.
@@ -88,6 +112,11 @@ class IrrigationController:
         self.last_run: datetime | None = None
         self.run_end: datetime | None = None
         self.rain: RainAssessment | None = None
+        # Dynamic mode: forecast for the next minutes and result of the last check.
+        self.rain_next: RainAssessment | None = None
+        self.last_check: dict[str, Any] | None = None
+        # (start, weekday, window end) of a run moved by the dynamic rain check.
+        self._postponed: tuple[datetime, str, datetime] | None = None
         self.history: list[dict[str, Any]] = []
         self._current: dict[str, Any] | None = None
         self.water_total_l = 0.0
@@ -109,6 +138,20 @@ class IrrigationController:
         self._started = False
 
     # ---------------------------------------------------------------- props
+
+    def opt(self, key: str) -> Any:
+        """Option value with a default for options older entries don't have."""
+        value = self.config.get(key)
+        return OPTION_DEFAULTS.get(key) if value is None else value
+
+    @property
+    def mode(self) -> str:
+        return self.opt(CONF_MODE)
+
+    @property
+    def moisture(self) -> float | None:
+        """Average of all available soil moisture sensors."""
+        return average(_float_state(self.hass, e) for e in self.opt(CONF_MOISTURE_SENSORS))
 
     @property
     def valve_entity(self) -> str:
@@ -181,7 +224,24 @@ class IrrigationController:
                 }
                 for day in WEEKDAYS
             ],
-            "options": {key: self.config.get(key) for key in OPTION_KEYS},
+            "options": {key: self.opt(key) for key in OPTION_KEYS},
+            "mode": self.mode,
+            "rain_next": (
+                {
+                    "amount_mm": self.rain_next.amount_mm,
+                    "max_probability": self.rain_next.max_probability,
+                    "skip": self.rain_next.skip,
+                }
+                if self.rain_next
+                else None
+            ),
+            "moisture": self.moisture,
+            "moisture_sensors": [
+                {"entity_id": e, "value": _float_state(self.hass, e)}
+                for e in self.opt(CONF_MOISTURE_SENSORS)
+            ],
+            "last_check": self.last_check,
+            "postponed": iso(self._postponed[0]) if self._postponed else None,
             "water_entity": self.water_entity,
             "water_total_l": self.water_total_l if self._water else None,
             "last_water_l": self.last_water_l,
@@ -217,6 +277,12 @@ class IrrigationController:
         self.last_water_l = stored.get("last_water_l")
         self.cost_total = stored.get("cost_total") or 0.0
         self.last_cost = stored.get("last_cost")
+        self.last_check = stored.get("last_check")
+        if postponed := stored.get("postponed"):
+            start, day, window_end = postponed
+            self._postponed = (
+                dt_util.parse_datetime(start), day, dt_util.parse_datetime(window_end)
+            )
         if self.history and self.history[-1].get("end") is None:
             self._current = self.history[-1]
             if self._water:
@@ -274,6 +340,25 @@ class IrrigationController:
         if self._unsub_schedule:
             self._unsub_schedule()
             self._unsub_schedule = None
+        if self._postponed and self._postponed[0] > dt_util.now():
+            self.next_run, self.next_run_day, _ = self._postponed
+            self._unsub_schedule = async_track_point_in_time(
+                self.hass, self._async_scheduled_run, self.next_run
+            )
+            self.async_notify()
+            return
+        self._postponed = None
+        result = self._next_regular_slot()
+        if result is None:
+            self.next_run = self.next_run_day = None
+        else:
+            self.next_run, self.next_run_day = result
+            self._unsub_schedule = async_track_point_in_time(
+                self.hass, self._async_scheduled_run, self.next_run
+            )
+        self.async_notify()
+
+    def _next_regular_slot(self) -> tuple[datetime, str] | None:
         # Days without a duration get no slots at all.
         windows = {
             i: tuple(self.windows[day])
@@ -283,27 +368,118 @@ class IrrigationController:
         result = compute_next_run(
             dt_util.now(), windows, float(self.config[CONF_INTERVAL_HOURS])
         )
-        if result is None:
-            self.next_run = self.next_run_day = None
-        else:
-            self.next_run, weekday = result
-            self.next_run_day = WEEKDAYS[weekday]
-            self._unsub_schedule = async_track_point_in_time(
-                self.hass, self._async_scheduled_run, self.next_run
-            )
-        self.async_notify()
+        return (result[0], WEEKDAYS[result[1]]) if result else None
 
     async def _async_scheduled_run(self, _now: datetime) -> None:
         self._unsub_schedule = None
+        slot, day = self.next_run, self.next_run_day
+        postponed, self._postponed = self._postponed, None
         try:
-            if self.auto_enabled and self.next_run_day:
+            if not (self.auto_enabled and day and slot):
+                return
+            if self.mode == MODE_DYNAMIC:
+                window_end = (
+                    postponed[2] if postponed else window_end_for_slot(slot, *self.windows[day])
+                )
+                await self._async_dynamic_run(day, window_end)
+            else:
                 await self.async_run(
-                    duration_min=self.durations[self.next_run_day],
+                    duration_min=self.durations[day],
                     check_rain=self.rain_check_enabled,
                     source=SOURCE_AUTO,
                 )
         finally:
             self._schedule_next()
+
+    # -------------------------------------------------------------- dynamic
+
+    async def _async_dynamic_run(self, day: str, window_end: datetime) -> None:
+        """Check soil and rain right before a scheduled run, then run, postpone or skip."""
+        duration = self.durations[day]
+        now = dt_util.now()
+        check = await self._async_dynamic_check(now)
+        self.last_check = check
+
+        threshold = float(self.opt(CONF_MOISTURE_THRESHOLD))
+        if check["moisture"] is not None and check["moisture"] >= threshold:
+            _LOGGER.info("Skipping irrigation: soil moisture %s%% >= %s%%", check["moisture"], threshold)
+            self._skip(now, STATUS_SKIPPED_MOISTURE, duration, check)
+            await self._async_save()
+            self.async_notify()
+            return
+
+        if self.rain_check_enabled and (check["past_rain"] or check["next_rain"]):
+            next_slot = self._next_regular_slot()
+            target = postpone_target(
+                now,
+                float(self.opt(CONF_POSTPONE_MINUTES)),
+                window_end,
+                next_slot[0] if next_slot else None,
+            )
+            if target is not None:
+                _LOGGER.info("Rain around the slot, postponing irrigation to %s", target)
+                self._postponed = (target, day, window_end)
+                self._skip(now, STATUS_POSTPONED, duration, check)
+            else:
+                _LOGGER.info("Rain around the slot and no time left in the window, skipping")
+                self._skip(now, STATUS_SKIPPED_RAIN, duration, check)
+            await self._async_save()
+            self.async_notify()
+            return
+
+        await self.async_run(duration_min=duration, check_rain=False, source=SOURCE_AUTO)
+
+    def _skip(self, now: datetime, status: str, duration: float, check: dict[str, Any]) -> None:
+        self.status = status
+        entry = self._add_history(now, SOURCE_AUTO, status, duration, end=now)
+        entry["check"] = check
+
+    async def _async_dynamic_check(self, now: datetime) -> dict[str, Any]:
+        past_minutes = float(self.opt(CONF_PAST_RAIN_MINUTES))
+        past_rain, source = await self._async_past_rain(now - timedelta(minutes=past_minutes), now)
+        await self.async_refresh_rain()
+        return {
+            "time": now.isoformat(),
+            "moisture": self.moisture,
+            "past_rain": past_rain,
+            "past_source": source,
+            "next_mm": self.rain_next.amount_mm if self.rain_next else None,
+            "next_probability": self.rain_next.max_probability if self.rain_next else None,
+            "next_rain": bool(self.rain_next and self.rain_next.skip),
+        }
+
+    async def _async_past_rain(self, start: datetime, end: datetime) -> tuple[bool, str]:
+        """Rain between start and end, from the rain sensor or the weather condition history."""
+        entity_id = self.opt(CONF_RAIN_SENSOR) or self.weather_entity
+        domain = entity_id.split(".", 1)[0]
+        if domain == "binary_sensor":
+            kind = "binary"
+        elif domain == "weather":
+            kind = "condition"
+        else:
+            state = self.hass.states.get(entity_id)
+            unit = state.attributes.get("unit_of_measurement") if state else None
+            kind = "rate" if unit in RAIN_RATE_UNITS else "amount"
+        values = await self._async_state_history(entity_id, start, end)
+        return rained_recently(kind, values, RAINY_CONDITIONS), entity_id
+
+    async def _async_state_history(self, entity_id: str, start: datetime, end: datetime) -> list[str]:
+        """States of `entity_id` from `start` (incl. the state at `start`) to now."""
+        current = self.hass.states.get(entity_id)
+        tail = [current.state] if current else []
+        try:
+            from homeassistant.components.recorder import get_instance, history
+
+            def _fetch() -> dict[str, list[Any]]:
+                return history.state_changes_during_period(
+                    self.hass, start, end, entity_id, include_start_time_state=True
+                )
+
+            states = await get_instance(self.hass).async_add_executor_job(_fetch)
+        except Exception:  # noqa: BLE001 - recorder missing or failing: use current state
+            _LOGGER.debug("No recorder history for %s, using current state", entity_id, exc_info=True)
+            return tail
+        return [s.state for s in states.get(entity_id, [])] + tail
 
     # ------------------------------------------------------------------ run
 
@@ -494,6 +670,12 @@ class IrrigationController:
                 "last_water_l": self.last_water_l,
                 "cost_total": self.cost_total,
                 "last_cost": self.last_cost,
+                "last_check": self.last_check,
+                "postponed": (
+                    [self._postponed[0].isoformat(), self._postponed[1], self._postponed[2].isoformat()]
+                    if self._postponed
+                    else None
+                ),
             }
         )
 
@@ -511,6 +693,19 @@ class IrrigationController:
         ):
             forecast = await self._async_get_forecast(forecast_type)
             if forecast:
+                # The short "next minutes" check needs hourly data.
+                self.rain_next = (
+                    assess_rain(
+                        forecast,
+                        now,
+                        float(self.opt(CONF_NEXT_RAIN_MINUTES)) / 60,
+                        float(self.opt(CONF_NEXT_RAIN_MM)),
+                        float(self.opt(CONF_NEXT_RAIN_PROBABILITY)),
+                        period,
+                    )
+                    if forecast_type == "hourly"
+                    else None
+                )
                 self.rain = assess_rain(
                     forecast,
                     now,
@@ -522,7 +717,7 @@ class IrrigationController:
                 self.async_notify()
                 return
         _LOGGER.warning("No forecast available from %s", self.weather_entity)
-        self.rain = None
+        self.rain = self.rain_next = None
         self.async_notify()
 
     async def _async_get_forecast(self, forecast_type: str) -> list[dict[str, Any]]:
@@ -538,3 +733,11 @@ class IrrigationController:
             _LOGGER.debug("%s forecast not available: %s", forecast_type, err)
             return []
         return (response or {}).get(self.weather_entity, {}).get("forecast") or []
+
+
+def _float_state(hass: HomeAssistant, entity_id: str) -> float | None:
+    state = hass.states.get(entity_id)
+    try:
+        return float(state.state) if state else None
+    except ValueError:
+        return None
