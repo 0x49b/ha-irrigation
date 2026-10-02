@@ -137,3 +137,53 @@ def test_meter_consumption(start, end, expected):
 )
 def test_water_cost(liters, price, expected):
     assert logic.water_cost(liters, price) == expected
+
+
+RAINY = frozenset({"rainy", "pouring"})
+
+
+@pytest.mark.parametrize(
+    ("kind", "values", "expected"),
+    [
+        ("binary", ["off", "on", "off"], True),
+        ("binary", ["off", "unavailable"], False),
+        ("condition", ["sunny", "pouring", "cloudy"], True),
+        ("condition", ["sunny", "cloudy"], False),
+        ("rate", ["0", "0.0", "1.2"], True),
+        ("rate", ["0", "unknown"], False),
+        ("amount", ["4.2", "4.2", "4.5"], True),
+        ("amount", ["4.2", "4.2"], False),
+        ("amount", ["12.0", "0.0"], False),  # daily reset only
+        ("amount", ["12.0", "0.0", "0.3"], True),  # reset, then rain
+        ("amount", [], False),
+    ],
+)
+def test_rained_recently(kind, values, expected):
+    assert logic.rained_recently(kind, values, RAINY) is expected
+
+
+@pytest.mark.parametrize(
+    ("slot", "start", "end", "expected"),
+    [
+        (dt(1, 7), time(7), time(22), dt(1, 22)),
+        (dt(1, 13), time(7), time(22), dt(1, 22)),
+        (dt(1, 23), time(22), time(4), dt(2, 4)),
+        (dt(2, 2), time(22), time(4), dt(2, 4)),  # overnight part, previous day's window
+        (dt(1, 6), time(6), time(6), dt(2, 6)),  # 24h window
+    ],
+)
+def test_window_end_for_slot(slot, start, end, expected):
+    assert logic.window_end_for_slot(slot, start, end) == expected
+
+
+def test_postpone_target():
+    now = dt(1, 13)
+    assert logic.postpone_target(now, 60, dt(1, 22), dt(1, 19)) == dt(1, 14)
+    assert logic.postpone_target(dt(1, 21, 30), 60, dt(1, 22), None) is None  # past window end
+    assert logic.postpone_target(dt(1, 18, 30), 60, dt(1, 22), dt(1, 19)) is None  # hits next slot
+    assert logic.postpone_target(dt(1, 20), 60, dt(1, 22), None) == dt(1, 21)
+
+
+def test_average():
+    assert logic.average([50, 70, None]) == 60
+    assert logic.average([None]) is None

@@ -125,3 +125,61 @@ def meter_consumption(start_l: float, end_l: float) -> float:
 def water_cost(liters: float, price_per_m3: float) -> float:
     """Cost of `liters` at `price_per_m3`, rounded to 1/100 of the currency."""
     return round(liters / 1000 * price_per_m3, 2)
+
+
+def rained_recently(kind: str, values: Iterable[Any], rainy: frozenset[str] = frozenset()) -> bool:
+    """Whether a state history (oldest first, incl. the state at window start) shows rain.
+
+    kind: "binary" (on = rain), "condition" (weather state in `rainy`),
+    "rate" (precipitation rate > 0) or "amount" (accumulating counter rose).
+    """
+    values = list(values)
+    if kind == "binary":
+        return any(v == "on" for v in values)
+    if kind == "condition":
+        return any(v in rainy for v in values)
+    numbers = []
+    for value in values:
+        try:
+            numbers.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    if kind == "rate":
+        return any(n > 0 for n in numbers)
+    # Accumulating amount: any increase counts; a drop is a counter reset.
+    return any(b > a for a, b in zip(numbers, numbers[1:]))
+
+
+def window_end_for_slot(slot: datetime, start: time, end: time) -> datetime:
+    """End of the watering window that contains `slot`.
+
+    The window starts at `start` on the slot's date, or on the previous date
+    for the part of an overnight window after midnight.
+    """
+    day = slot.date()
+    if datetime.combine(day, start, tzinfo=slot.tzinfo) > slot:
+        day -= ONE_DAY
+    window_start = datetime.combine(day, start, tzinfo=slot.tzinfo)
+    window_end = datetime.combine(day, end, tzinfo=slot.tzinfo)
+    if window_end <= window_start:
+        window_end += ONE_DAY
+    return window_end
+
+
+def postpone_target(
+    now: datetime,
+    delay_minutes: float,
+    window_end: datetime,
+    next_slot: datetime | None,
+) -> datetime | None:
+    """New start `delay_minutes` from now, or None if it leaves the window
+    or would reach the next regular slot."""
+    target = now + timedelta(minutes=delay_minutes)
+    if target >= window_end or (next_slot is not None and target >= next_slot):
+        return None
+    return target
+
+
+def average(values: Iterable[float | None]) -> float | None:
+    numbers = [v for v in values if v is not None]
+    return round(sum(numbers) / len(numbers), 1) if numbers else None

@@ -5,6 +5,14 @@ Custom Integration für eine automatische Bewässerung einer Zone.
 ## Features
 
 - **Zeitfenster pro Wochentag**: `von`/`bis` als `time` Entities (Standard 06:00 bis 22:00). Erster Lauf bei `von`, dann alle *n* Stunden (1 bis 24), solange der Start vor `bis` liegt. Beispiel Montag 07:00 bis 22:00, Intervall 6h: 07:00, 13:00, 19:00. Ein Lauf darf über `bis` hinaus dauern. Ist `bis` kleiner oder gleich `von`, geht das Fenster über Mitternacht (z.B. 22:00 bis 04:00); diese Läufe zählen zum Starttag.
+- **Modus statisch / dynamisch** (Panel oder Optionen, die Werte beider Modi bleiben gespeichert):
+  - *Statisch*: fester Zeitplan, Lauf wird übersprungen, wenn im Vorhersagefenster genug Regen erwartet wird.
+  - *Dynamisch*: vor jedem geplanten Lauf wird geprüft
+    - Bodenfeuchte (optional, 1 bis n Sensoren): liegt der Durchschnitt auf oder über der Schwelle (Default 60 %), wird übersprungen.
+    - Regen in den letzten 30 min: aus einem Regensensor (binär, mm oder mm/h) oder, ohne Sensor, aus dem Zustandsverlauf der Wetter-Entity (Recorder).
+    - Regen in der nächsten Stunde: stündliche Vorhersage mit eigenen Schwellen (Default 0,5 mm / 60 %).
+    - Bei Regen wird der Lauf um 1 h verschoben und erneut geprüft, solange er im Tagesfenster und vor dem nächsten regulären Slot bleibt; sonst übersprungen. Die Verschiebung übersteht einen Neustart.
+    - Alle Zeiten und Schwellen sind einstellbar. Der Schalter "Regenprüfung" schaltet die Regen-Checks in beiden Modi ab.
 - **Dauer pro Wochentag**: 7 `number` Entities (Minuten, `0` = an diesem Tag nicht bewässern). Die Dauer gilt pro Lauf.
 - **Regenprüfung**: vor jedem geplanten Lauf wird `weather.get_forecasts` (stündlich, sonst täglich) der gewählten Wetter-Entity abgefragt. Übersprungen wird, wenn im Vorhersagefenster die Regenmenge oder die maximale Regenwahrscheinlichkeit die Schwelle erreicht. Schwelle `0` deaktiviert das jeweilige Kriterium.
 - **Ventil**: `switch`, `valve` oder `input_boolean`.

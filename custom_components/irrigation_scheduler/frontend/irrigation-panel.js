@@ -20,6 +20,8 @@ const STATUS = {
   skipped_rain: "Übersprungen (Regen)",
   skipped_no_duration: "Übersprungen (keine Dauer)",
   error: "Fehler",
+  postponed: "Verschoben (Regen)",
+  skipped_moisture: "Übersprungen (Boden feucht)",
 };
 const RESULT = {
   completed: "Abgeschlossen",
@@ -27,6 +29,8 @@ const RESULT = {
   error: "Fehler",
   skipped_rain: "Übersprungen (Regen)",
   skipped_no_duration: "Übersprungen (keine Dauer)",
+  postponed: "Verschoben (Regen)",
+  skipped_moisture: "Übersprungen (Boden feucht)",
 };
 const SOURCE = { auto: "Automatik", manual: "Manuell" };
 
@@ -35,6 +39,11 @@ const CHART_DAYS = 30;
 // Units the backend understands for water tracking (volume meter or flow rate).
 const WATER_UNITS = ["L", "mL", "m³", "gal", "ft³", "CCF", "MCF", "fl. oz.",
   "L/min", "L/h", "L/s", "mL/s", "m³/h", "m³/min", "m³/s", "gal/min", "gal/h", "gal/d", "ft³/min"];
+
+// Precipitation units accepted for a rain sensor (amount or rate).
+const RAIN_UNITS = ["mm", "in", "mm/h", "in/h", "mm/d", "in/d"];
+
+const yesNo = (v) => (v == null ? "–" : v ? "ja" : "nein");
 
 const fmtMoney = (v, currency) => {
   if (v === null || v === undefined) return "–";
@@ -53,6 +62,18 @@ const PICKERS = {
     domains: ["sensor"],
     filter: (st) => WATER_UNITS.includes(st?.attributes?.unit_of_measurement),
     empty: "– keiner –",
+  },
+  rain_sensor: {
+    domains: ["binary_sensor", "sensor"],
+    filter: (st) =>
+      st?.entity_id?.startsWith("binary_sensor.") ||
+      RAIN_UNITS.includes(st?.attributes?.unit_of_measurement),
+    empty: "– Zustand der Wetter-Entity –",
+  },
+  moisture_sensors: {
+    domains: ["sensor"],
+    filter: (st) => st?.attributes?.unit_of_measurement === "%",
+    multi: true,
   },
 };
 const PICKER_LIMIT = 50;
@@ -174,6 +195,21 @@ const STYLE = `
   }
   .picker-list .opt.active, .picker-list .opt:hover { background: var(--secondary-background-color, #eee); }
   .picker-list .opt.selected { font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+  .chips:empty { display: none; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 2px; max-width: 100%;
+    padding: 2px 4px 2px 10px; border-radius: 14px; font-size: 13px;
+    background: var(--secondary-background-color, #eee);
+  }
+  .chip-x { border: 0; background: none; padding: 0 6px; font-size: 16px; line-height: 1; color: var(--secondary-text-color); }
+  .segmented { display: inline-flex; border: 1px solid var(--divider-color, #ccc); border-radius: 18px; overflow: hidden; }
+  .segmented label { position: relative; padding: 6px 14px; cursor: pointer; }
+  .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+  .segmented label:has(input:checked) { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .mode-group { display: contents; }
+  .mode-group[hidden] { display: none; }
+  .form h3 { grid-column: 1 / -1; margin: 8px 0 0; font-size: 14px; font-weight: 500; color: var(--secondary-text-color); }
   .picker-list .none { padding: 8px 10px; color: var(--secondary-text-color); }
   input[type=number] { width: 80px; }
   label.toggle { display: inline-flex; gap: 6px; align-items: center; margin-right: 16px; cursor: pointer; }
@@ -377,6 +413,12 @@ class IrrigationSchedulerPanel extends HTMLElement {
         this._openPicker(ev.target.closest(".picker"), ev.target.value);
         return;
       }
+      if (ev.target.name === "mode") {
+        // Only show the active mode's fields; the hidden ones keep their values and are saved too.
+        root.querySelectorAll("#settings .mode-group").forEach((g) => {
+          g.hidden = g.dataset.mode !== ev.target.value;
+        });
+      }
       this._settingsDirty = true;
       this._renderSettingsButtons();
     });
@@ -390,8 +432,12 @@ class IrrigationSchedulerPanel extends HTMLElement {
       } else if (action === "save") {
         const options = {};
         root.querySelectorAll("#settings [data-option]").forEach((el) => {
+          if (el.type === "radio" && !el.checked) return;
           options[el.dataset.option] =
-            el.type === "number" ? Number(el.value) : el.type === "checkbox" ? el.checked : el.value;
+            el.type === "number" ? Number(el.value)
+            : el.type === "checkbox" ? el.checked
+            : el.dataset.json ? JSON.parse(el.value || "[]")
+            : el.value;
         });
         ev.target.disabled = true;
         try {
@@ -452,8 +498,30 @@ class IrrigationSchedulerPanel extends HTMLElement {
         ${z.water_entity ? `<dt>Wasser gesamt</dt><dd>${fmtLiters(z.water_total_l)}${
           z.price_per_m3 > 0 || z.cost_total > 0 ? `, ${fmtMoney(z.cost_total, z.currency)}` : ""
         }</dd>` : ""}
-        <dt>Regen (${fmtNum(z.options.lookahead_hours)} h)</dt><dd>${rainText}${z.rain_check_enabled ? "" : " (Prüfung aus)"}</dd>
+        ${z.mode === "dynamic" ? this._dynamicStatus(z) : `
+        <dt>Regen (${fmtNum(z.options.lookahead_hours)} h)</dt><dd>${rainText}${z.rain_check_enabled ? "" : " (Prüfung aus)"}</dd>`}
       </dl>`;
+  }
+
+  _dynamicStatus(z) {
+    const o = z.options;
+    const next = z.rain_next;
+    const nextText = next
+      ? `${fmtNum(next.amount_mm, 1)} mm, ${next.max_probability == null ? "–" : fmtNum(next.max_probability)} %${next.skip ? " (würde verschieben)" : ""}`
+      : "keine stündliche Vorhersage";
+    const moisture = z.moisture_sensors.length
+      ? `${z.moisture == null ? "–" : `${fmtNum(z.moisture)} %`} (bewässern unter ${fmtNum(o.moisture_threshold)} %)`
+      : null;
+    const check = z.last_check;
+    const checkText = check
+      ? `${fmtDateTime(check.time)}: Regen zuvor ${yesNo(check.past_rain)}, danach ${yesNo(check.next_rain)}${check.moisture == null ? "" : `, Boden ${fmtNum(check.moisture)} %`}`
+      : "noch keine";
+    return `
+        <dt>Modus</dt><dd>Dynamisch${z.rain_check_enabled ? "" : " (Regenprüfung aus)"}</dd>
+        ${z.postponed ? `<dt>Verschoben auf</dt><dd>${fmtDateTime(z.postponed)}</dd>` : ""}
+        <dt>Regen ${fmtNum(o.next_rain_minutes)} min</dt><dd>${nextText}</dd>
+        ${moisture ? `<dt>Bodenfeuchte</dt><dd>${moisture}</dd>` : ""}
+        <dt>Letzte Prüfung</dt><dd>${checkText}</dd>`;
   }
 
   _renderManual(z) {
@@ -493,6 +561,16 @@ class IrrigationSchedulerPanel extends HTMLElement {
 
   _picker(key, value) {
     const cfg = PICKERS[key];
+    if (cfg.multi) {
+      // Hidden input keeps a JSON list; chips show the chosen entities.
+      return `<div class="picker" data-picker="${key}" data-multi="1">
+        <input type="hidden" data-option="${key}" data-json="1" value="${esc(JSON.stringify(value || []))}">
+        <div class="chips">${this._chips(value || [])}</div>
+        <input class="picker-input" type="search" autocomplete="off" spellcheck="false"
+          placeholder="Sensor hinzufügen…" value="" role="combobox" aria-expanded="false">
+        <div class="picker-list" role="listbox" hidden></div>
+      </div>`;
+    }
     const label = value ? this._entityName(value) : cfg.empty || "";
     return `<div class="picker" data-picker="${key}">
       <input type="hidden" data-option="${key}" value="${esc(value || "")}">
@@ -502,11 +580,35 @@ class IrrigationSchedulerPanel extends HTMLElement {
     </div>`;
   }
 
+  _chips(ids) {
+    return ids
+      .map((id) => `<span class="chip">${esc(this._entityName(id))}<button type="button" class="chip-x" data-remove="${esc(id)}" aria-label="Entfernen">×</button></span>`)
+      .join("");
+  }
+
+  _multiValue(picker) {
+    try {
+      return JSON.parse(picker.querySelector("[data-option]").value) || [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  _setMulti(picker, ids) {
+    picker.querySelector("[data-option]").value = JSON.stringify(ids);
+    picker.querySelector(".chips").innerHTML = this._chips(ids);
+    this._settingsDirty = true;
+    this._renderSettingsButtons();
+  }
+
   _openPicker(picker, query = "") {
     const key = picker.dataset.picker;
-    const current = picker.querySelector("[data-option]").value;
+    const multi = !!picker.dataset.multi;
+    const chosen = multi ? this._multiValue(picker) : [];
+    const current = multi ? null : picker.querySelector("[data-option]").value;
     const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
     const matches = this._pickerCandidates(key).filter((c) => {
+      if (chosen.includes(c.id)) return false;
       const hay = `${c.name} ${c.id}`.toLowerCase();
       return tokens.every((t) => hay.includes(t));
     });
@@ -527,12 +629,22 @@ class IrrigationSchedulerPanel extends HTMLElement {
     list.hidden = true;
     const input = picker.querySelector(".picker-input");
     input.setAttribute("aria-expanded", "false");
+    if (picker.dataset.multi) {
+      input.value = "";
+      return;
+    }
     // Show the committed selection again, discarding a half-typed search.
     const value = picker.querySelector("[data-option]").value;
     input.value = value ? this._entityName(value) : PICKERS[picker.dataset.picker].empty || "";
   }
 
   _choosePicker(picker, value) {
+    if (picker.dataset.multi) {
+      const ids = this._multiValue(picker);
+      if (value && !ids.includes(value)) this._setMulti(picker, [...ids, value]);
+      this._closePicker(picker);
+      return;
+    }
     const hidden = picker.querySelector("[data-option]");
     if (hidden.value !== value) {
       hidden.value = value;
@@ -561,6 +673,11 @@ class IrrigationSchedulerPanel extends HTMLElement {
     settings.addEventListener("click", (ev) => {
       const opt = ev.target.closest?.(".picker-list .opt");
       if (opt) this._choosePicker(pickerOf(opt), opt.dataset.value);
+      const remove = ev.target.dataset?.remove;
+      if (remove) {
+        const picker = pickerOf(ev.target);
+        this._setMulti(picker, this._multiValue(picker).filter((id) => id !== remove));
+      }
     });
     settings.addEventListener("keydown", (ev) => {
       const picker = pickerOf(ev.target);
@@ -588,16 +705,39 @@ class IrrigationSchedulerPanel extends HTMLElement {
     const o = z.options;
     const num = (key, min, max, step, unit) =>
       `<span><input type="number" data-option="${key}" min="${min}" max="${max}" step="${step}" value="${esc(o[key])}"> ${unit}</span>`;
+    const mode = o.mode || "static";
+    const radio = (value, label) =>
+      `<label><input type="radio" name="mode" data-option="mode" value="${value}" ${mode === value ? "checked" : ""}>${label}</label>`;
     this.shadowRoot.getElementById("settings").innerHTML = `
       <div class="form">
+        <label>Modus</label>
+        <div class="segmented" role="radiogroup">${radio("static", "Statisch")}${radio("dynamic", "Dynamisch")}</div>
         <label>Ventil</label>
         ${this._picker("valve_entity", o.valve_entity)}
         <label>Wetter</label>
         ${this._picker("weather_entity", o.weather_entity)}
         <label>Intervall</label>${num("interval_hours", 1, 24, 1, "h")}
-        <label>Regenmenge ab</label>${num("rain_threshold_mm", 0, 100, 0.1, "mm (0 = aus)")}
-        <label>Regenwahrsch. ab</label>${num("rain_probability", 0, 100, 1, "% (0 = aus)")}
-        <label>Vorhersagefenster</label>${num("lookahead_hours", 1, 72, 1, "h")}
+        <div class="mode-group" data-mode="static" ${mode === "static" ? "" : "hidden"}>
+          <h3>Regenprüfung (statisch)</h3>
+          <label>Regenmenge ab</label>${num("rain_threshold_mm", 0, 100, 0.1, "mm (0 = aus)")}
+          <label>Regenwahrsch. ab</label>${num("rain_probability", 0, 100, 1, "% (0 = aus)")}
+          <label>Vorhersagefenster</label>${num("lookahead_hours", 1, 72, 1, "h")}
+        </div>
+        <div class="mode-group" data-mode="dynamic" ${mode === "dynamic" ? "" : "hidden"}>
+          <h3>Regen vor und nach dem Lauf</h3>
+          <label>Regensensor</label>
+          ${this._picker("rain_sensor", o.rain_sensor)}
+          <label>Regen zuvor</label>${num("past_rain_minutes", 5, 360, 5, "min prüfen")}
+          <label>Regen danach</label>${num("next_rain_minutes", 15, 360, 15, "min prüfen")}
+          <label>Regenmenge ab</label>${num("next_rain_mm", 0, 100, 0.1, "mm (0 = aus)")}
+          <label>Regenwahrsch. ab</label>${num("next_rain_probability", 0, 100, 1, "% (0 = aus)")}
+          <label>Verschieben um</label>${num("postpone_minutes", 15, 360, 15, "min")}
+          <h3>Bodenfeuchte</h3>
+          <label>Sensoren</label>
+          ${this._picker("moisture_sensors", o.moisture_sensors)}
+          <label>Bewässern unter</label>${num("moisture_threshold", 0, 100, 1, "% (Durchschnitt)")}
+        </div>
+        <h3>Wasser und Kosten</h3>
         <label>Wassersensor</label>
         ${this._picker("water_entity", o.water_entity)}
         <label>Wasserpreis</label>${num("water_price", 0, 100, 0.01, `${esc(z.currency)}/m³`)}
@@ -698,8 +838,10 @@ class IrrigationSchedulerPanel extends HTMLElement {
         const running = h.end === null;
         const result = running ? "Läuft" : RESULT[h.result] || h.result;
         const dur = running ? `${fmtNum(h.planned_min)} geplant` : h.actual_min > 0 ? fmtNum(h.actual_min, 1) : "–";
-        const rain =
-          h.rain_mm == null && h.rain_probability == null
+        const c = h.check;
+        const rain = c
+          ? `zuvor ${yesNo(c.past_rain)}, danach ${c.next_mm == null ? "–" : `${fmtNum(c.next_mm, 1)} mm`}${c.moisture == null ? "" : `, Boden ${fmtNum(c.moisture)} %`}`
+          : h.rain_mm == null && h.rain_probability == null
             ? "–"
             : `${fmtNum(h.rain_mm, 1)} mm / ${h.rain_probability == null ? "–" : fmtNum(h.rain_probability)} %`;
         return `<tr>

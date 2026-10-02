@@ -32,14 +32,12 @@
     "step": {
       "init": {
         "title": "Einstellungen",
-        "description": "Pro Wochentag: erster Lauf bei 'von', dann alle n Stunden, solange der Start vor 'bis' liegt. Fenster und Dauer werden über die Entities des Geräts eingestellt.",
+        "description": "Gemeinsame Einstellungen und Modus. Im nächsten Schritt folgen die Einstellungen des gewählten Modus; die des anderen Modus bleiben erhalten.",
         "data": {
+          "mode": "Modus",
           "valve_entity": "Ventil",
           "weather_entity": "Wetter-Entität",
           "interval_hours": "Intervall (Stunden)",
-          "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
-          "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
-          "lookahead_hours": "Vorhersagefenster (Stunden)",
           "water_entity": "Wasserzähler oder Durchfluss (optional)",
           "water_price": "Wasserpreis pro m³",
           "wastewater_price": "Abwasserpreis pro m³",
@@ -49,6 +47,34 @@
           "water_entity": "Zählerstand (L, m³) oder Durchfluss (L/min, m³/h), z.B. vom Sonoff-Ventil. Wird pro Lauf ausgewertet.",
           "water_price": "In der Währung aus den HA-Einstellungen. Benötigt einen Wassersensor.",
           "wastewater_enabled": "Ausschalten, wenn Gartenwasser abwasserfrei ist (z.B. separater Gartenzähler)."
+        }
+      },
+      "static": {
+        "title": "Statischer Modus",
+        "description": "Fester Zeitplan. Ein Lauf wird übersprungen, wenn im Vorhersagefenster genug Regen erwartet wird.",
+        "data": {
+          "rain_threshold_mm": "Regenmenge Schwelle (mm, 0 = aus)",
+          "rain_probability": "Regenwahrscheinlichkeit Schwelle (%, 0 = aus)",
+          "lookahead_hours": "Vorhersagefenster (Stunden)"
+        }
+      },
+      "dynamic": {
+        "title": "Dynamischer Modus",
+        "description": "Vor jedem geplanten Lauf: Bodenfeuchte und Regen kurz davor und danach prüfen.",
+        "data": {
+          "rain_sensor": "Regensensor (optional)",
+          "past_rain_minutes": "Regen zuvor prüfen (Minuten)",
+          "next_rain_minutes": "Regen danach prüfen (Minuten)",
+          "next_rain_mm": "Regenmenge ab (mm)",
+          "next_rain_probability": "Regenwahrscheinlichkeit ab (%)",
+          "postpone_minutes": "Verschieben um (Minuten)",
+          "moisture_sensors": "Bodenfeuchtesensoren",
+          "moisture_threshold": "Bodenfeuchte Schwelle (%)"
+        },
+        "data_description": {
+          "rain_sensor": "Binär (Regen ja/nein) oder Niederschlag in mm bzw. mm/h. Leer: Zustandsverlauf der Wetter-Entity.",
+          "moisture_sensors": "Bewässert wird nur, wenn der Durchschnitt unter der Schwelle liegt.",
+          "postpone_minutes": "Regnet es zuvor oder danach, wird der Lauf verschoben, solange er im Tagesfenster und vor dem nächsten Slot bleibt; sonst übersprungen."
         }
       }
     }
@@ -96,7 +122,9 @@
           "watering": "Bewässert",
           "skipped_rain": "Übersprungen (Regen)",
           "skipped_no_duration": "Übersprungen (keine Dauer)",
-          "error": "Fehler"
+          "error": "Fehler",
+          "postponed": "Verschoben",
+          "skipped_moisture": "Übersprungen (Boden feucht)"
         }
       },
       "next_run": {
@@ -171,6 +199,14 @@
       },
       "window_end_sun": {
         "name": "Sonntag bis"
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "static": "Statisch",
+        "dynamic": "Dynamisch"
       }
     }
   }

@@ -13,6 +13,16 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import (
+    CONF_MODE,
+    CONF_MOISTURE_SENSORS,
+    CONF_MOISTURE_THRESHOLD,
+    CONF_NEXT_RAIN_MINUTES,
+    CONF_NEXT_RAIN_MM,
+    CONF_NEXT_RAIN_PROBABILITY,
+    CONF_PAST_RAIN_MINUTES,
+    CONF_POSTPONE_MINUTES,
+    CONF_RAIN_SENSOR,
+    MODES,
     CONF_INTERVAL_HOURS,
     CONF_LOOKAHEAD_HOURS,
     CONF_RAIN_PROBABILITY,
@@ -42,6 +52,17 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_WATER_PRICE): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
         vol.Optional(CONF_WASTEWATER_PRICE): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
         vol.Optional(CONF_WASTEWATER_ENABLED): bool,
+        vol.Optional(CONF_MODE): vol.In(MODES),
+        vol.Optional(CONF_RAIN_SENSOR): vol.Any(
+            None, "", cv.entity_domain(["binary_sensor", "sensor"])
+        ),
+        vol.Optional(CONF_PAST_RAIN_MINUTES): vol.All(vol.Coerce(int), vol.Range(min=5, max=360)),
+        vol.Optional(CONF_NEXT_RAIN_MINUTES): vol.All(vol.Coerce(int), vol.Range(min=15, max=360)),
+        vol.Optional(CONF_NEXT_RAIN_MM): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+        vol.Optional(CONF_NEXT_RAIN_PROBABILITY): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+        vol.Optional(CONF_POSTPONE_MINUTES): vol.All(vol.Coerce(int), vol.Range(min=15, max=360)),
+        vol.Optional(CONF_MOISTURE_SENSORS): [cv.entity_domain("sensor")],
+        vol.Optional(CONF_MOISTURE_THRESHOLD): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
     }
 )
 
@@ -169,8 +190,9 @@ def ws_update_options(
         return
     entry = controller.entry
     options = {**entry.data, **entry.options, **msg["options"]}
-    if CONF_WATER_ENTITY in options:
-        options[CONF_WATER_ENTITY] = options[CONF_WATER_ENTITY] or None
+    for key in (CONF_WATER_ENTITY, CONF_RAIN_SENSOR):
+        if key in options:
+            options[key] = options[key] or None
     hass.config_entries.async_update_entry(entry, options=options)
     connection.send_result(msg["id"])
 
