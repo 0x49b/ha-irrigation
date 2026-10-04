@@ -67,6 +67,6 @@ uv run pytest
 
 Die CI (`.github/workflows/ci.yml`) führt bei jedem PR Ruff, Pytest, einen Syntax-Check des Panels sowie hassfest und die HACS-Validierung aus.
 
-Releases entstehen automatisch (`.github/workflows/release.yml`): Bei jedem Push auf `main` wird die Version aus `manifest.json` als GitHub-Release (Tag z.B. `0.10.3`) angelegt, falls es sie noch nicht gibt. HACS zeigt dadurch die Version statt des Commit-Hashes. Für ein Update in HACS muss die Version in `manifest.json` und `pyproject.toml` erhöht werden; die CI prüft, dass beide übereinstimmen.
+Releases entstehen automatisch (`.github/workflows/release.yml`), sobald ein Push auf `main` etwas unter `custom_components/` oder `hacs.json` ändert: Ist die Version aus `manifest.json` bereits released, erhöht die Action die Patch-Version in `manifest.json`, `pyproject.toml` und `uv.lock` (z.B. `0.10.3` → `0.10.4`), committet das auf `main` und legt das Release an. Wurde die Version im PR manuell erhöht (z.B. `0.11.0`), wird genau diese released. HACS zeigt so die Version statt des Commit-Hashes. Die CI prüft, dass beide Versionen übereinstimmen.
 
 Abhängigkeits-Updates kommen über [Renovate](https://docs.renovatebot.com/) (`renovate.json`): Python-Dev-Tools inkl. `uv.lock` und GitHub Actions. Minor- und Patch-Updates werden bei grüner CI automatisch gemergt, Major-Updates brauchen ein Review.
