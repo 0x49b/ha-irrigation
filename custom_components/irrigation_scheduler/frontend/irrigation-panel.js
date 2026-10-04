@@ -145,6 +145,8 @@ const STYLE = `
   .toolbar .title { flex: 1; }
   .content { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
   .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* display rules above must not override the hidden attribute (e.g. zone tabs with one zone). */
+  [hidden] { display: none !important; }
   .tabs button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .card {
     background: var(--card-background-color, #fff);
@@ -357,6 +359,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
     const root = this.shadowRoot;
     root.innerHTML = `
       <style>${STYLE}</style>
+      <div class="toolbar"><span id="menu"></span><span class="title">Bewässerung</span></div>
       <div class="content">
         <div class="tabs" id="tabs"></div>
         <div id="empty" class="card empty" hidden>Keine Zone eingerichtet. Unter Einstellungen &gt; Geräte &amp; Dienste "Irrigation Scheduler" hinzufügen.</div>
