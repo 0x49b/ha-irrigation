@@ -26,6 +26,22 @@ jobs:
         run: uv run pytest
       - name: Panel JS syntax
         run: node --check custom_components/irrigation_scheduler/frontend/irrigation-panel.js
+      - name: Version consistency
+        run: |
+          manifest=$(jq -r .version custom_components/irrigation_scheduler/manifest.json)
+          project=$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          echo "manifest.json: $manifest, pyproject.toml: $project"
+          test "$manifest" = "$project"
+      - name: Version release status
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(jq -r .version custom_components/irrigation_scheduler/manifest.json)
+          if gh release view "$version" >/dev/null 2>&1; then
+            echo "::notice::Version $version is already released; the release workflow bumps the patch version after merge (if the integration changed)."
+          fi
 
   hassfest:
     name: Hassfest

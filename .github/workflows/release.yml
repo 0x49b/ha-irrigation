@@ -1,0 +1,82 @@
+name: Release
+
+# HACS shows the release tag as version (otherwise the commit hash).
+#
+# On every push to main that touches the integration:
+# - manifest.json and pyproject.toml must carry the same version
+# - if that version is already released (not bumped in the PR), the patch
+#   version is increased and committed to main
+# - the version is released with a tag like 0.10.4
+on:
+  push:
+    branches: [main]
+    paths:
+      - "custom_components/**"
+      - "hacs.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: release
+
+env:
+  MANIFEST: custom_components/irrigation_scheduler/manifest.json
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Read versions
+        id: current
+        run: |
+          manifest=$(jq -r .version "$MANIFEST")
+          project=$(uv run --no-project python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          echo "manifest.json: $manifest, pyproject.toml: $project"
+          if [ "$manifest" != "$project" ]; then
+            echo "::error::Versions differ (manifest.json $manifest, pyproject.toml $project)"
+            exit 1
+          fi
+          echo "version=$manifest" >> "$GITHUB_OUTPUT"
+
+      - name: Bump patch version if already released
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CURRENT: ${{ steps.current.outputs.version }}
+        run: |
+          if ! gh release view "$CURRENT" >/dev/null 2>&1; then
+            echo "Version $CURRENT was bumped manually, releasing it as is."
+            echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          IFS=. read -r major minor patch <<< "$CURRENT"
+          next="$major.$minor.$((patch + 1))"
+          echo "Version $CURRENT is already released, bumping to $next."
+
+          jq --indent 2 --arg v "$next" '.version = $v' "$MANIFEST" > manifest.tmp
+          mv manifest.tmp "$MANIFEST"
+          sed -i "s/^version = \"$CURRENT\"/version = \"$next\"/" pyproject.toml
+          uv lock
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump version to $next [skip ci]"
+          git push origin HEAD:main
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION exists already, nothing to do."
+          else
+            gh release create "$VERSION" --target "$(git rev-parse HEAD)" --title "$VERSION" --generate-notes
+          fi
