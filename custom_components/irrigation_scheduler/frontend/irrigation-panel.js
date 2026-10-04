@@ -357,7 +357,6 @@ class IrrigationSchedulerPanel extends HTMLElement {
     const root = this.shadowRoot;
     root.innerHTML = `
       <style>${STYLE}</style>
-      <div class="toolbar"><span id="menu"></span><span class="title">Bewässerung</span></div>
       <div class="content">
         <div class="tabs" id="tabs"></div>
         <div id="empty" class="card empty" hidden>Keine Zone eingerichtet. Unter Einstellungen &gt; Geräte &amp; Dienste "Irrigation Scheduler" hinzufügen.</div>
