@@ -2,8 +2,8 @@
 
 from datetime import datetime, time, timedelta
 import importlib.util
-import sys
 from pathlib import Path
+import sys
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -187,3 +187,25 @@ def test_postpone_target():
 def test_average():
     assert logic.average([50, 70, None]) == 60
     assert logic.average([None]) is None
+
+
+def test_upcoming_slots():
+    # Wednesday 2026-07-01 12:00, Wed/Thu active 07-22 every 6h.
+    win = windows(time(7), time(22), days=[2, 3])
+    slots = logic.upcoming_slots(dt(1, 12), win, 6, 7)
+    assert slots[:5] == [(dt(1, 13), 2), (dt(1, 19), 2), (dt(2, 7), 3), (dt(2, 13), 3), (dt(2, 19), 3)]
+    # Next active Wednesday is within 7 days, the slot exactly at the horizon is included.
+    assert (dt(8, 7), 2) in slots and (dt(8, 13), 2) not in slots
+    assert slots == sorted(slots)
+
+
+def test_upcoming_slots_overnight_window_belongs_to_start_day():
+    slots = logic.upcoming_slots(dt(1, 21), windows(time(22), time(4), days=[2]), 3, 1)
+    assert slots == [(dt(1, 22), 2), (dt(2, 1), 2)]
+
+
+def test_upcoming_matches_compute_next_run():
+    win = windows(time(7), time(22))
+    for hour in range(24):
+        now = dt(1, hour, 30)
+        assert logic.upcoming_slots(now, win, 5, 7)[0] == logic.compute_next_run(now, win, 5)

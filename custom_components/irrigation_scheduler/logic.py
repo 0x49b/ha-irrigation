@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from itertools import pairwise
 from typing import Any
 
 ONE_DAY = timedelta(days=1)
@@ -56,6 +57,30 @@ def compute_next_run(
                 best = (slot, weekday)
                 break
     return best
+
+
+def upcoming_slots(
+    now: datetime,
+    windows: Mapping[int, tuple[time, time]],
+    interval_hours: float,
+    days: float,
+) -> list[tuple[datetime, int]]:
+    """All slots in (now, now + days], sorted, with the weekday whose window they belong to."""
+    if interval_hours <= 0:
+        raise ValueError("interval_hours must be positive")
+    interval = timedelta(hours=interval_hours)
+    horizon = now + timedelta(days=days)
+    today = now.date()
+    slots = [
+        (slot, day.weekday())
+        # Start one day back to catch windows that run past midnight.
+        for delta in range(-1, int(days) + 2)
+        for day in [today + timedelta(days=delta)]
+        if day.weekday() in windows
+        for slot in window_slots(day, *windows[day.weekday()], interval, now.tzinfo)
+        if now < slot <= horizon
+    ]
+    return sorted(slots)
 
 
 @dataclass(frozen=True)
@@ -147,7 +172,7 @@ def rained_recently(kind: str, values: Iterable[Any], rainy: frozenset[str] = fr
     if kind == "rate":
         return any(n > 0 for n in numbers)
     # Accumulating amount: any increase counts; a drop is a counter reset.
-    return any(b > a for a, b in zip(numbers, numbers[1:]))
+    return any(b > a for a, b in pairwise(numbers))
 
 
 def window_end_for_slot(slot: datetime, start: time, end: time) -> datetime:

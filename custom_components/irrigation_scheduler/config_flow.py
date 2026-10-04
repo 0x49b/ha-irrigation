@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+import voluptuous as vol
 
 from .const import (
+    CONF_INTERVAL_HOURS,
+    CONF_LOOKAHEAD_HOURS,
     CONF_MODE,
     CONF_MOISTURE_SENSORS,
     CONF_MOISTURE_THRESHOLD,
@@ -20,14 +21,8 @@ from .const import (
     CONF_NEXT_RAIN_PROBABILITY,
     CONF_PAST_RAIN_MINUTES,
     CONF_POSTPONE_MINUTES,
-    CONF_RAIN_SENSOR,
-    MODE_DYNAMIC,
-    MODE_STATIC,
-    MODES,
-    OPTION_DEFAULTS,
-    CONF_INTERVAL_HOURS,
-    CONF_LOOKAHEAD_HOURS,
     CONF_RAIN_PROBABILITY,
+    CONF_RAIN_SENSOR,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
     CONF_WASTEWATER_ENABLED,
@@ -44,6 +39,10 @@ from .const import (
     DEFAULT_WASTEWATER_PRICE,
     DEFAULT_WATER_PRICE,
     DOMAIN,
+    MODE_DYNAMIC,
+    MODE_STATIC,
+    MODES,
+    OPTION_DEFAULTS,
 )
 
 
@@ -74,9 +73,13 @@ def _settings_schema(defaults: dict[str, Any]) -> dict[vol.Marker, Any]:
         # Tariffs per m³ in the Home Assistant currency.
         vol.Required(CONF_WATER_PRICE, default=defaults.get(CONF_WATER_PRICE, DEFAULT_WATER_PRICE)):
             _number(0, 100, 0.01, "/m³"),
-        vol.Required(CONF_WASTEWATER_PRICE, default=defaults.get(CONF_WASTEWATER_PRICE, DEFAULT_WASTEWATER_PRICE)):
+        vol.Required(
+            CONF_WASTEWATER_PRICE, default=defaults.get(CONF_WASTEWATER_PRICE, DEFAULT_WASTEWATER_PRICE)
+        ):
             _number(0, 100, 0.01, "/m³"),
-        vol.Required(CONF_WASTEWATER_ENABLED, default=defaults.get(CONF_WASTEWATER_ENABLED, DEFAULT_WASTEWATER_ENABLED)):
+        vol.Required(
+            CONF_WASTEWATER_ENABLED, default=defaults.get(CONF_WASTEWATER_ENABLED, DEFAULT_WASTEWATER_ENABLED)
+        ):
             selector.BooleanSelector(),
     }
 
@@ -84,11 +87,17 @@ def _settings_schema(defaults: dict[str, Any]) -> dict[vol.Marker, Any]:
 def _static_schema(defaults: dict[str, Any]) -> dict[vol.Marker, Any]:
     """Forecast window check of the static mode."""
     return {
-        vol.Required(CONF_RAIN_THRESHOLD_MM, default=defaults.get(CONF_RAIN_THRESHOLD_MM, DEFAULT_RAIN_THRESHOLD_MM)):
+        vol.Required(
+            CONF_RAIN_THRESHOLD_MM, default=defaults.get(CONF_RAIN_THRESHOLD_MM, DEFAULT_RAIN_THRESHOLD_MM)
+        ):
             _number(0, 100, 0.1, "mm"),
-        vol.Required(CONF_RAIN_PROBABILITY, default=defaults.get(CONF_RAIN_PROBABILITY, DEFAULT_RAIN_PROBABILITY)):
+        vol.Required(
+            CONF_RAIN_PROBABILITY, default=defaults.get(CONF_RAIN_PROBABILITY, DEFAULT_RAIN_PROBABILITY)
+        ):
             _number(0, 100, 1, "%"),
-        vol.Required(CONF_LOOKAHEAD_HOURS, default=defaults.get(CONF_LOOKAHEAD_HOURS, DEFAULT_LOOKAHEAD_HOURS)):
+        vol.Required(
+            CONF_LOOKAHEAD_HOURS, default=defaults.get(CONF_LOOKAHEAD_HOURS, DEFAULT_LOOKAHEAD_HOURS)
+        ):
             _number(1, 72, 1, "h"),
     }
 
@@ -136,9 +145,13 @@ def _dynamic_schema(defaults: dict[str, Any]) -> dict[vol.Marker, Any]:
         vol.Optional(CONF_RAIN_SENSOR, description={"suggested_value": defaults.get(CONF_RAIN_SENSOR)}):
             selector.EntitySelector(selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])),
         vol.Required(CONF_PAST_RAIN_MINUTES, default=get(CONF_PAST_RAIN_MINUTES)): _number(5, 360, 5, "min"),
-        vol.Required(CONF_NEXT_RAIN_MINUTES, default=get(CONF_NEXT_RAIN_MINUTES)): _number(15, 360, 15, "min"),
+        vol.Required(
+            CONF_NEXT_RAIN_MINUTES, default=get(CONF_NEXT_RAIN_MINUTES)
+        ): _number(15, 360, 15, "min"),
         vol.Required(CONF_NEXT_RAIN_MM, default=get(CONF_NEXT_RAIN_MM)): _number(0, 100, 0.1, "mm"),
-        vol.Required(CONF_NEXT_RAIN_PROBABILITY, default=get(CONF_NEXT_RAIN_PROBABILITY)): _number(0, 100, 1, "%"),
+        vol.Required(
+            CONF_NEXT_RAIN_PROBABILITY, default=get(CONF_NEXT_RAIN_PROBABILITY)
+        ): _number(0, 100, 1, "%"),
         vol.Required(CONF_POSTPONE_MINUTES, default=get(CONF_POSTPONE_MINUTES)): _number(15, 360, 15, "min"),
         vol.Optional(CONF_MOISTURE_SENSORS, default=get(CONF_MOISTURE_SENSORS)):
             selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),

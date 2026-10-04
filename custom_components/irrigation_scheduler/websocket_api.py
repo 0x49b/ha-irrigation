@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-import voluptuous as vol
-
 from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+import voluptuous as vol
 
 from .const import (
+    CONF_INTERVAL_HOURS,
+    CONF_LOOKAHEAD_HOURS,
     CONF_MODE,
     CONF_MOISTURE_SENSORS,
     CONF_MOISTURE_THRESHOLD,
@@ -21,11 +22,8 @@ from .const import (
     CONF_NEXT_RAIN_PROBABILITY,
     CONF_PAST_RAIN_MINUTES,
     CONF_POSTPONE_MINUTES,
-    CONF_RAIN_SENSOR,
-    MODES,
-    CONF_INTERVAL_HOURS,
-    CONF_LOOKAHEAD_HOURS,
     CONF_RAIN_PROBABILITY,
+    CONF_RAIN_SENSOR,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
     CONF_WASTEWATER_ENABLED,
@@ -35,6 +33,7 @@ from .const import (
     CONF_WEATHER_ENTITY,
     DOMAIN,
     MAX_DURATION_MIN,
+    MODES,
     SIGNAL_UPDATE,
     WEEKDAYS,
 )
@@ -79,6 +78,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_run,
         ws_stop,
         ws_recalculate_costs,
+        ws_set_skip,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -241,3 +241,24 @@ async def ws_recalculate_costs(
         return
     count = await controller.async_recalculate_costs()
     connection.send_result(msg["id"], {"count": count})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_skip",
+        vol.Required("entry_id"): str,
+        vol.Required("slot"): cv.datetime,
+        vol.Required("skip"): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_skip(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    if not (controller := _get_controller(hass, connection, msg)):
+        return
+    if not await controller.async_set_skip(msg["slot"], msg["skip"]):
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "No upcoming run at this time")
+        return
+    connection.send_result(msg["id"])

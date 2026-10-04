@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dev dependencies
+        run: uv sync --locked
+      - name: Ruff
+        run: uv run ruff check .
+      - name: Pytest
+        run: uv run pytest
+      - name: Panel JS syntax
+        run: node --check custom_components/irrigation_scheduler/frontend/irrigation-panel.js
+
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # Not in the HA brands repo; description/topics are repo settings.
+          ignore: brands description topics

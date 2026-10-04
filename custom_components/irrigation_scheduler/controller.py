@@ -31,8 +31,8 @@ from .const import (
     CONF_NEXT_RAIN_PROBABILITY,
     CONF_PAST_RAIN_MINUTES,
     CONF_POSTPONE_MINUTES,
-    CONF_RAIN_SENSOR,
     CONF_RAIN_PROBABILITY,
+    CONF_RAIN_SENSOR,
     CONF_RAIN_THRESHOLD_MM,
     CONF_VALVE_ENTITY,
     CONF_WASTEWATER_ENABLED,
@@ -52,10 +52,11 @@ from .const import (
     OPTION_DEFAULTS,
     OPTION_KEYS,
     RAIN_RATE_UNITS,
-    RAINY_CONDITIONS,
     RAIN_REFRESH_MINUTES,
+    RAINY_CONDITIONS,
     RESULT_COMPLETED,
     RESULT_ERROR,
+    RESULT_SKIPPED_MANUAL,
     RESULT_STOPPED,
     SIGNAL_UPDATE,
     SOURCE_AUTO,
@@ -67,15 +68,16 @@ from .const import (
     STATUS_SKIPPED_NO_DURATION,
     STATUS_SKIPPED_RAIN,
     STATUS_WATERING,
+    UPCOMING_DAYS,
     WEEKDAYS,
 )
 from .logic import (
     RainAssessment,
     assess_rain,
     average,
-    compute_next_run,
     postpone_target,
     rained_recently,
+    upcoming_slots,
     water_cost,
     window_end_for_slot,
 )
@@ -117,6 +119,8 @@ class IrrigationController:
         self.last_check: dict[str, Any] | None = None
         # (start, weekday, window end) of a run moved by the dynamic rain check.
         self._postponed: tuple[datetime, str, datetime] | None = None
+        # Slots the user chose to skip: UTC ISO timestamp -> weekday of its window.
+        self.skipped_slots: dict[str, str] = {}
         self.history: list[dict[str, Any]] = []
         self._current: dict[str, Any] | None = None
         self.water_total_l = 0.0
@@ -242,6 +246,15 @@ class IrrigationController:
             ],
             "last_check": self.last_check,
             "postponed": iso(self._postponed[0]) if self._postponed else None,
+            "upcoming": [
+                {
+                    "time": slot.isoformat(),
+                    "day": day,
+                    "duration": self.durations[day],
+                    "skipped": _slot_key(slot) in self.skipped_slots,
+                }
+                for slot, day in self._upcoming(UPCOMING_DAYS)
+            ],
             "water_entity": self.water_entity,
             "water_total_l": self.water_total_l if self._water else None,
             "last_water_l": self.last_water_l,
@@ -278,6 +291,7 @@ class IrrigationController:
         self.cost_total = stored.get("cost_total") or 0.0
         self.last_cost = stored.get("last_cost")
         self.last_check = stored.get("last_check")
+        self.skipped_slots = stored.get("skipped_slots") or {}
         if postponed := stored.get("postponed"):
             start, day, window_end = postponed
             self._postponed = (
@@ -340,6 +354,7 @@ class IrrigationController:
         if self._unsub_schedule:
             self._unsub_schedule()
             self._unsub_schedule = None
+        self._log_passed_skips()
         if self._postponed and self._postponed[0] > dt_util.now():
             self.next_run, self.next_run_day, _ = self._postponed
             self._unsub_schedule = async_track_point_in_time(
@@ -358,20 +373,56 @@ class IrrigationController:
             )
         self.async_notify()
 
-    def _next_regular_slot(self) -> tuple[datetime, str] | None:
+    def _upcoming(self, days: float) -> list[tuple[datetime, str]]:
         # Days without a duration get no slots at all.
         windows = {
             i: tuple(self.windows[day])
             for i, day in enumerate(WEEKDAYS)
             if self.durations[day] > 0
         }
-        result = compute_next_run(
-            dt_util.now(), windows, float(self.config[CONF_INTERVAL_HOURS])
+        slots = upcoming_slots(
+            dt_util.now(), windows, float(self.config[CONF_INTERVAL_HOURS]), days
         )
-        return (result[0], WEEKDAYS[result[1]]) if result else None
+        return [(slot, WEEKDAYS[weekday]) for slot, weekday in slots]
+
+    def _next_regular_slot(self) -> tuple[datetime, str] | None:
+        """Next slot that the user didn't skip."""
+        for slot, day in self._upcoming(UPCOMING_DAYS + 1):
+            if _slot_key(slot) not in self.skipped_slots:
+                return slot, day
+        return None
+
+    async def async_set_skip(self, slot: datetime, skip: bool) -> bool:
+        """Skip or un-skip an upcoming slot. Returns False if `slot` isn't one."""
+        key = _slot_key(slot)
+        day = next(
+            (d for s, d in self._upcoming(UPCOMING_DAYS + 1) if _slot_key(s) == key), None
+        )
+        if day is None:
+            return False
+        if skip:
+            self.skipped_slots[key] = day
+        else:
+            self.skipped_slots.pop(key, None)
+        await self._async_save()
+        self._schedule_next()
+        return True
+
+    def _log_passed_skips(self) -> None:
+        """Move skipped slots that have passed into the history."""
+        now = dt_util.utcnow()
+        for key in sorted(self.skipped_slots):
+            slot = dt_util.parse_datetime(key)
+            if slot is None or slot > now:
+                continue
+            day = self.skipped_slots.pop(key)
+            local = dt_util.as_local(slot)
+            self._add_history(local, SOURCE_AUTO, RESULT_SKIPPED_MANUAL, self.durations[day], end=local)
 
     async def _async_scheduled_run(self, _now: datetime) -> None:
         self._unsub_schedule = None
+        # Earlier skipped slots go into the history before this run's entry.
+        self._log_passed_skips()
         slot, day = self.next_run, self.next_run_day
         postponed, self._postponed = self._postponed, None
         try:
@@ -671,6 +722,7 @@ class IrrigationController:
                 "cost_total": self.cost_total,
                 "last_cost": self.last_cost,
                 "last_check": self.last_check,
+                "skipped_slots": self.skipped_slots,
                 "postponed": (
                     [self._postponed[0].isoformat(), self._postponed[1], self._postponed[2].isoformat()]
                     if self._postponed
@@ -741,3 +793,7 @@ def _float_state(hass: HomeAssistant, entity_id: str) -> float | None:
         return float(state.state) if state else None
     except ValueError:
         return None
+
+
+def _slot_key(slot: datetime) -> str:
+    return dt_util.as_utc(slot).isoformat()

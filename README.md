@@ -13,6 +13,7 @@ Custom Integration für eine automatische Bewässerung einer Zone.
     - Regen in der nächsten Stunde: stündliche Vorhersage mit eigenen Schwellen (Default 0,5 mm / 60 %).
     - Bei Regen wird der Lauf um 1 h verschoben und erneut geprüft, solange er im Tagesfenster und vor dem nächsten regulären Slot bleibt; sonst übersprungen. Die Verschiebung übersteht einen Neustart.
     - Alle Zeiten und Schwellen sind einstellbar. Der Schalter "Regenprüfung" schaltet die Regen-Checks in beiden Modi ab.
+- **Einzelne Läufe überspringen**: Das Panel listet die geplanten Läufe der nächsten 7 Tage; jeder lässt sich überspringen und wieder aktivieren (beide Modi). "Nächster Lauf" zeigt den nächsten nicht übersprungenen Lauf, übersprungene erscheinen im Verlauf.
 - **Dauer pro Wochentag**: 7 `number` Entities (Minuten, `0` = an diesem Tag nicht bewässern). Die Dauer gilt pro Lauf.
 - **Regenprüfung**: vor jedem geplanten Lauf wird `weather.get_forecasts` (stündlich, sonst täglich) der gewählten Wetter-Entity abgefragt. Übersprungen wird, wenn im Vorhersagefenster die Regenmenge oder die maximale Regenwahrscheinlichkeit die Schwelle erreicht. Schwelle `0` deaktiviert das jeweilige Kriterium.
 - **Ventil**: `switch`, `valve` oder `input_boolean`.
@@ -54,9 +55,16 @@ HACS: Repository als *Custom repository* (Typ *Integration*) hinzufügen, oder `
 
 Mehrere Zonen: Integration mehrfach mit unterschiedlichen Ventilen einrichten.
 
-## Tests
+## Entwicklung
+
+Dev-Tools werden mit [uv](https://docs.astral.sh/uv/) verwaltet (`pyproject.toml` + `uv.lock`). Die Integration selbst hat keine Python-Abhängigkeiten.
 
 ```bash
-pip install pytest
-pytest tests
+uv sync            # dev dependencies installieren
+uv run ruff check .
+uv run pytest
 ```
+
+Die CI (`.github/workflows/ci.yml`) führt bei jedem PR Ruff, Pytest, einen Syntax-Check des Panels sowie hassfest und die HACS-Validierung aus.
+
+Abhängigkeits-Updates kommen über [Renovate](https://docs.renovatebot.com/) (`renovate.json`): Python-Dev-Tools inkl. `uv.lock` und GitHub Actions. Minor- und Patch-Updates werden bei grüner CI automatisch gemergt, Major-Updates brauchen ein Review.
