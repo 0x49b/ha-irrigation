@@ -79,6 +79,8 @@ SOURCE_MANUAL = "manual"
 RESULT_COMPLETED = "completed"
 RESULT_STOPPED = "stopped"
 RESULT_ERROR = "error"
+RESULT_SKIPPED_MANUAL = "skipped_manual"
+UPCOMING_DAYS = 7
 
 SIGNAL_UPDATE = f"{DOMAIN}_update"
 

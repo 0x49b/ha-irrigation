@@ -59,6 +59,30 @@ def compute_next_run(
     return best
 
 
+def upcoming_slots(
+    now: datetime,
+    windows: Mapping[int, tuple[time, time]],
+    interval_hours: float,
+    days: float,
+) -> list[tuple[datetime, int]]:
+    """All slots in (now, now + days], sorted, with the weekday whose window they belong to."""
+    if interval_hours <= 0:
+        raise ValueError("interval_hours must be positive")
+    interval = timedelta(hours=interval_hours)
+    horizon = now + timedelta(days=days)
+    today = now.date()
+    slots = [
+        (slot, day.weekday())
+        # Start one day back to catch windows that run past midnight.
+        for delta in range(-1, int(days) + 2)
+        for day in [today + timedelta(days=delta)]
+        if day.weekday() in windows
+        for slot in window_slots(day, *windows[day.weekday()], interval, now.tzinfo)
+        if now < slot <= horizon
+    ]
+    return sorted(slots)
+
+
 @dataclass(frozen=True)
 class RainAssessment:
     """Result of evaluating a forecast."""

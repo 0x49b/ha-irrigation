@@ -31,6 +31,7 @@ const RESULT = {
   skipped_no_duration: "Übersprungen (keine Dauer)",
   postponed: "Verschoben (Regen)",
   skipped_moisture: "Übersprungen (Boden feucht)",
+  skipped_manual: "Übersprungen (manuell)",
 };
 const SOURCE = { auto: "Automatik", manual: "Manuell" };
 
@@ -219,6 +220,8 @@ const STYLE = `
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   tr.today td:first-child { font-weight: 600; color: var(--primary-color); }
   tr.off td { color: var(--secondary-text-color); }
+  tr.skipped td:not(:last-child) { color: var(--secondary-text-color); text-decoration: line-through; }
+  #upcoming button { padding: 4px 10px; font-size: 13px; }
   .slots { color: var(--secondary-text-color); font-size: 13px; }
   .form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; align-items: center; }
   .form select, .form input { max-width: 100%; }
@@ -347,6 +350,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
             <div class="card"><h2>Status</h2><div id="status"></div><div id="manual"></div></div>
             <div class="card"><h2>Einstellungen</h2><div id="flags"></div><div id="settings"></div><div id="costs"></div></div>
           </div>
+          <div class="card" style="margin-top:16px"><h2>Geplante Läufe</h2><div id="upcoming"></div></div>
           <div class="card" style="margin-top:16px"><h2>Wochenplan</h2><div id="week"></div></div>
           <div class="card" style="margin-top:16px"><h2>Verlauf</h2><div id="history"></div></div>
         </div>
@@ -365,6 +369,17 @@ class IrrigationSchedulerPanel extends HTMLElement {
         this._selected = id;
         this._settingsDirty = false;
         this._update();
+      }
+    });
+
+    $("upcoming").addEventListener("click", async (ev) => {
+      const { slot, skip } = ev.target.dataset || {};
+      if (!slot) return;
+      ev.target.disabled = true;
+      try {
+        await this._ws("set_skip", { slot, skip: skip === "1" });
+      } finally {
+        ev.target.disabled = false;
       }
     });
 
@@ -470,6 +485,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
     if (zoneChanged || !(this._settingsDirty || focused("settings"))) this._renderSettings(zone);
     this._renderCosts(zone);
     if (zoneChanged || !focused("week")) this._renderWeek(zone);
+    this._renderUpcoming(zone);
     this._renderHistory(zone);
     this._renderedZone = zone.entry_id;
   }
@@ -801,6 +817,38 @@ class IrrigationSchedulerPanel extends HTMLElement {
       </table>
       </div>
       <div class="hint" style="margin-top:8px">Dauer 0 = an diesem Tag keine Bewässerung. Ist "Bis" früher als "Von", läuft das Fenster über Mitternacht.</div>`;
+  }
+
+  _renderUpcoming(z) {
+    const list = z.upcoming || [];
+    const el = this.shadowRoot.getElementById("upcoming");
+    if (!list.length) {
+      el.innerHTML = `<div class="empty">Keine Läufe in den nächsten 7 Tagen geplant.</div>`;
+      return;
+    }
+    const skipped = list.filter((u) => u.skipped).length;
+    const rows = list
+      .map(
+        (u) => `<tr class="${u.skipped ? "skipped" : ""}">
+          <td>${fmtDate(u.time)}</td>
+          <td>${fmtTime(u.time)}</td>
+          <td class="num">${fmtNum(u.duration)} min</td>
+          <td class="num">${
+            u.skipped
+              ? `<button data-slot="${esc(u.time)}" data-skip="0">Rückgängig</button>`
+              : `<button data-slot="${esc(u.time)}" data-skip="1">Überspringen</button>`
+          }</td>
+        </tr>`,
+      )
+      .join("");
+    el.innerHTML = `
+      <div class="scroll" style="max-height:320px"><table>
+        <thead><tr><th>Datum</th><th>Start</th><th class="num">Dauer</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div class="hint" style="margin-top:8px">Nächste 7 Tage${skipped ? `, ${skipped} übersprungen` : ""}. Übersprungene Läufe erscheinen im Verlauf.${
+        z.mode === "dynamic" ? " Ein übersprungener Lauf wird auch nicht geprüft oder verschoben." : ""
+      }</div>`;
   }
 
   _renderHistory(z) {

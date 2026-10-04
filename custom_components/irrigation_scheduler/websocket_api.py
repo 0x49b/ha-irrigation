@@ -78,6 +78,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_run,
         ws_stop,
         ws_recalculate_costs,
+        ws_set_skip,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -240,3 +241,24 @@ async def ws_recalculate_costs(
         return
     count = await controller.async_recalculate_costs()
     connection.send_result(msg["id"], {"count": count})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_skip",
+        vol.Required("entry_id"): str,
+        vol.Required("slot"): cv.datetime,
+        vol.Required("skip"): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_skip(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    if not (controller := _get_controller(hass, connection, msg)):
+        return
+    if not await controller.async_set_skip(msg["slot"], msg["skip"]):
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "No upcoming run at this time")
+        return
+    connection.send_result(msg["id"])
