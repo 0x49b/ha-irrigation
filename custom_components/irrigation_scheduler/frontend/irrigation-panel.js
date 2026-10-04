@@ -227,6 +227,21 @@ const STYLE = `
   .form select, .form input { max-width: 100%; }
   .form select { width: 100%; min-width: 0; }
   .hint { color: var(--secondary-text-color); font-size: 13px; }
+  details.collapse > summary {
+    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
+    color: var(--primary-color); font-weight: 500; padding: 4px 0; user-select: none;
+  }
+  details.collapse > summary::-webkit-details-marker { display: none; }
+  details.collapse > summary::before {
+    content: ""; width: 7px; height: 7px; flex: none;
+    border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg); transition: transform .15s;
+  }
+  details.collapse[open] > summary::before { transform: rotate(45deg); }
+  details.collapse[open] > summary { margin-bottom: 12px; }
+  details.card-collapse > summary { color: var(--primary-text-color); flex-wrap: wrap; }
+  details.card-collapse > summary h2 { margin: 0; }
+  .summary-hint { color: var(--secondary-text-color); font-size: 14px; font-weight: 400; }
   .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); margin-bottom: 16px; }
   .tile .v { font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
   .tile .l { color: var(--secondary-text-color); font-size: 13px; }
@@ -346,13 +361,25 @@ class IrrigationSchedulerPanel extends HTMLElement {
         <div class="tabs" id="tabs"></div>
         <div id="empty" class="card empty" hidden>Keine Zone eingerichtet. Unter Einstellungen &gt; Geräte &amp; Dienste "Irrigation Scheduler" hinzufügen.</div>
         <div id="main">
+          <div class="card" style="margin-bottom:16px">
+            <h2>Verlauf</h2>
+            <div id="history-tiles"></div>
+            <details class="collapse" id="history-details">
+              <summary>Diagramm und Läufe</summary>
+              <div id="history"></div>
+            </details>
+          </div>
           <div class="grid2">
             <div class="card"><h2>Status</h2><div id="status"></div><div id="manual"></div></div>
             <div class="card"><h2>Einstellungen</h2><div id="flags"></div><div id="settings"></div><div id="costs"></div></div>
           </div>
-          <div class="card" style="margin-top:16px"><h2>Geplante Läufe</h2><div id="upcoming"></div></div>
+          <div class="card" style="margin-top:16px">
+            <details class="collapse card-collapse" id="upcoming-details">
+              <summary><h2>Geplante Läufe</h2><span class="summary-hint" id="upcoming-summary"></span></summary>
+              <div id="upcoming"></div>
+            </details>
+          </div>
           <div class="card" style="margin-top:16px"><h2>Wochenplan</h2><div id="week"></div></div>
-          <div class="card" style="margin-top:16px"><h2>Verlauf</h2><div id="history"></div></div>
         </div>
       </div>`;
 
@@ -370,6 +397,11 @@ class IrrigationSchedulerPanel extends HTMLElement {
         this._settingsDirty = false;
         this._update();
       }
+    });
+
+    // The chart is drawn at the container's pixel width, so redraw once it becomes visible.
+    $("history-details").addEventListener("toggle", (ev) => {
+      if (ev.target.open && this._zone) this._renderHistory(this._zone);
     });
 
     $("upcoming").addEventListener("click", async (ev) => {
@@ -822,6 +854,10 @@ class IrrigationSchedulerPanel extends HTMLElement {
   _renderUpcoming(z) {
     const list = z.upcoming || [];
     const el = this.shadowRoot.getElementById("upcoming");
+    const skippedCount = list.filter((u) => u.skipped).length;
+    this.shadowRoot.getElementById("upcoming-summary").textContent = list.length
+      ? `${list.length} in 7 Tagen${skippedCount ? `, ${skippedCount} übersprungen` : ""}`
+      : "keine";
     if (!list.length) {
       el.innerHTML = `<div class="empty">Keine Läufe in den nächsten 7 Tagen geplant.</div>`;
       return;
@@ -913,8 +949,9 @@ class IrrigationSchedulerPanel extends HTMLElement {
           <tbody>${rows}</tbody></table></div>`
       : `<div class="empty">Noch keine Läufe aufgezeichnet.</div>`;
 
+    this.shadowRoot.getElementById("history-tiles").innerHTML = tiles;
     const el = this.shadowRoot.getElementById("history");
-    el.innerHTML = `${tiles}<div class="chart" id="chart"></div>${table}`;
+    el.innerHTML = `<div class="chart" id="chart"></div>${table}`;
     this._renderChart(el.querySelector("#chart"), history, showWater, showCost ? z.currency : null);
   }
 
