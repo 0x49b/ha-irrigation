@@ -1,0 +1,33 @@
+name: Release
+
+# HACS shows the release tag as version (otherwise the commit hash).
+# Every push to main releases the version from manifest.json, unless it exists already.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Read version
+        id: version
+        run: echo "version=$(jq -r .version custom_components/irrigation_scheduler/manifest.json)" >> "$GITHUB_OUTPUT"
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION exists already, nothing to do."
+          else
+            gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes
+          fi
