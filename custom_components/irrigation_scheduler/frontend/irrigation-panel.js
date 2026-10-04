@@ -156,6 +156,7 @@ const STYLE = `
   .card h2 { margin: 0 0 12px; font-size: 18px; font-weight: 500; }
   .grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
   .grid2 > *, #main > * { min-width: 0; }
+  .grid2 { align-items: start; }
   .kv dd { overflow-wrap: anywhere; }
   .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; }
   .kv dt { color: var(--secondary-text-color); }
@@ -371,7 +372,12 @@ class IrrigationSchedulerPanel extends HTMLElement {
           </div>
           <div class="grid2">
             <div class="card"><h2>Status</h2><div id="status"></div><div id="manual"></div></div>
-            <div class="card"><h2>Einstellungen</h2><div id="flags"></div><div id="settings"></div><div id="costs"></div></div>
+            <div class="card">
+              <details class="collapse card-collapse" id="settings-details">
+                <summary><h2>Einstellungen</h2><span class="summary-hint" id="settings-summary"></span></summary>
+                <div id="flags"></div><div id="settings"></div><div id="costs"></div>
+              </details>
+            </div>
           </div>
           <div class="card" style="margin-top:16px">
             <details class="collapse card-collapse" id="upcoming-details">
@@ -379,7 +385,12 @@ class IrrigationSchedulerPanel extends HTMLElement {
               <div id="upcoming"></div>
             </details>
           </div>
-          <div class="card" style="margin-top:16px"><h2>Wochenplan</h2><div id="week"></div></div>
+          <div class="card" style="margin-top:16px">
+            <details class="collapse card-collapse" id="week-details">
+              <summary><h2>Wochenplan</h2><span class="summary-hint" id="week-summary"></span></summary>
+              <div id="week"></div>
+            </details>
+          </div>
         </div>
       </div>`;
 
@@ -514,6 +525,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
     this._renderStatus(zone);
     if (zoneChanged || !focused("manual")) this._renderManual(zone);
     this._renderFlags(zone);
+    this._renderSummaries(zone);
     if (zoneChanged || !(this._settingsDirty || focused("settings"))) this._renderSettings(zone);
     this._renderCosts(zone);
     if (zoneChanged || !focused("week")) this._renderWeek(zone);
@@ -818,6 +830,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
   }
 
   _renderSettingsButtons() {
+    if (this._zone) this._renderSummaries(this._zone);
     const el = this.shadowRoot.getElementById("settings-buttons");
     if (!el) return;
     el.innerHTML = `
@@ -849,6 +862,17 @@ class IrrigationSchedulerPanel extends HTMLElement {
       </table>
       </div>
       <div class="hint" style="margin-top:8px">Dauer 0 = an diesem Tag keine Bewässerung. Ist "Bis" früher als "Von", läuft das Fenster über Mitternacht.</div>`;
+  }
+
+  // One-line hints shown in the headers of collapsed cards.
+  _renderSummaries(z) {
+    const root = this.shadowRoot;
+    const mode = z.mode === "dynamic" ? "Dynamisch" : "Statisch";
+    root.getElementById("settings-summary").textContent =
+      `${mode}, Automatik ${z.auto_enabled ? "an" : "aus"}${this._settingsDirty ? ", ungespeichert" : ""}`;
+    const active = z.days.filter((d) => d.duration > 0).length;
+    root.getElementById("week-summary").textContent =
+      `${active} ${active === 1 ? "Tag" : "Tage"} aktiv, alle ${fmtNum(z.options.interval_hours)} h`;
   }
 
   _renderUpcoming(z) {
