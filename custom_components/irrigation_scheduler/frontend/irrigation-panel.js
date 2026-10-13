@@ -34,6 +34,7 @@ const RESULT = {
   skipped_manual: "Übersprungen (manuell)",
 };
 const SOURCE = { auto: "Automatik", manual: "Manuell" };
+const WINDOW_NAMES = ["Morgen", "Nachmittag"];
 
 const CHART_DAYS = 30;
 
@@ -115,7 +116,7 @@ function windowSlots(start, end, intervalHours) {
   const s = toMinutes(start);
   let e = toMinutes(end);
   if (e <= s) e += 1440;
-  const step = Math.max(intervalHours, 1) * 60;
+  const step = Math.max(intervalHours, 0.25) * 60;
   const slots = [];
   for (let t = s; t < e; t += step) slots.push(fromMinutes(t));
   return slots;
@@ -226,6 +227,15 @@ const STYLE = `
   tr.skipped td:not(:last-child) { color: var(--secondary-text-color); text-decoration: line-through; }
   #upcoming button { padding: 4px 10px; font-size: 13px; }
   .slots { color: var(--secondary-text-color); font-size: 13px; }
+  #week .day { padding: 8px 0; border-bottom: 1px solid var(--divider-color, #e0e0e0); }
+  #week .day-name { font-weight: 500; margin-bottom: 4px; }
+  #week .day.today .day-name { color: var(--primary-color); }
+  #week .win { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 4px 0; }
+  #week .win.off .win-label, #week .win.off .slots { color: var(--secondary-text-color); }
+  #week .win-label { width: 92px; color: var(--secondary-text-color); font-size: 14px; }
+  #week .f { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  #week .slots { margin-left: auto; }
+  #week input[type=number] { width: 70px; }
   .form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; align-items: center; }
   .form select, .form input { max-width: 100%; }
   .form select { width: 100%; min-width: 0; }
@@ -275,8 +285,10 @@ const STYLE = `
     .hide-narrow { display: none; }
     .narrow-only { display: inline; }
     th, td { padding: 6px 4px; }
-    #week input[type=number] { width: 52px; }
+    #week input[type=number] { width: 60px; }
     #week input[type=time] { width: 108px; padding: 5px 4px; }
+    #week .win-label { flex-basis: 100%; }
+    #week .slots { flex-basis: 100%; margin-left: 0; }
   }
 `;
 
@@ -444,12 +456,13 @@ class IrrigationSchedulerPanel extends HTMLElement {
     });
 
     $("week").addEventListener("change", (ev) => {
-      const { day, field } = ev.target.dataset || {};
+      const { day, window, field } = ev.target.dataset || {};
       if (!day || !field) return;
-      const value = field === "duration" ? Number(ev.target.value) : ev.target.value;
-      if (field === "duration" && !(value >= 0)) return;
-      if (field !== "duration" && !value) return;
-      this._ws("set_day", { day, [field]: value });
+      const numeric = field === "duration" || field === "interval";
+      const value = numeric ? Number(ev.target.value) : ev.target.value;
+      if (numeric ? ev.target.value === "" || !(value >= 0) : !value) return;
+      if (field === "interval" && !(value > 0)) return;
+      this._ws("set_day", { day, window: Number(window || 0), [field]: value });
     });
     $("week").addEventListener("focusout", () => setTimeout(() => this._update(), 0));
 
@@ -842,28 +855,34 @@ class IrrigationSchedulerPanel extends HTMLElement {
 
   _renderWeek(z) {
     const today = DAYS[(new Date().getDay() + 6) % 7][0];
-    const interval = Number(z.options.interval_hours) || 24;
-    const rows = DAYS.map(([key, name, short]) => {
-      const d = z.days.find((x) => x.day === key) || { duration: 0, start: "06:00", end: "22:00" };
-      const off = !(d.duration > 0);
-      const slots = off ? "kein Lauf" : windowSlots(d.start, d.end, interval).join(", ");
+    const fallback = Number(z.options.interval_hours) || 24;
+    const windowRow = (key, index, w) => {
+      const off = !(w.duration > 0);
+      const slots = off ? "aus" : windowSlots(w.start, w.end, Number(w.interval) || fallback).join(", ");
+      const attrs = `data-day="${key}" data-window="${index}"`;
       return `
-        <tr class="${key === today ? "today" : ""} ${off ? "off" : ""}">
-          <td><span class="hide-narrow">${name}</span><span class="narrow-only">${short}</span></td>
-          <td><input type="number" min="0" max="240" step="1" data-day="${key}" data-field="duration" value="${esc(d.duration)}"><span class="hide-narrow"> min</span></td>
-          <td><input type="time" data-day="${key}" data-field="start" value="${esc(d.start)}"></td>
-          <td><input type="time" data-day="${key}" data-field="end" value="${esc(d.end)}"></td>
-          <td class="slots hide-narrow">${esc(slots)}</td>
-        </tr>`;
+        <div class="win ${off ? "off" : ""}">
+          <span class="win-label">${WINDOW_NAMES[index]}</span>
+          <label class="f"><input type="number" min="0" max="240" step="1" ${attrs} data-field="duration" value="${esc(w.duration)}"> min</label>
+          <span class="f"><input type="time" ${attrs} data-field="start" value="${esc(w.start)}"> – <input type="time" ${attrs} data-field="end" value="${esc(w.end)}"></span>
+          <label class="f">alle <input type="number" min="0.25" max="24" step="0.25" ${attrs} data-field="interval" value="${esc(w.interval)}"> h</label>
+          <span class="slots">${esc(slots)}</span>
+        </div>`;
+    };
+    const blocks = DAYS.map(([key, name]) => {
+      const d = z.days.find((x) => x.day === key);
+      const windows = d?.windows || [
+        { start: d?.start || "06:00", end: d?.end || "22:00", interval: fallback, duration: d?.duration || 0 },
+      ];
+      return `
+        <div class="day ${key === today ? "today" : ""}">
+          <div class="day-name">${name}</div>
+          ${windows.map((w, i) => windowRow(key, i, w)).join("")}
+        </div>`;
     }).join("");
     this.shadowRoot.getElementById("week").innerHTML = `
-      <div class="xscroll">
-      <table>
-        <thead><tr><th>Tag</th><th>Dauer<span class="narrow-only"> (min)</span></th><th>Von</th><th>Bis</th><th class="hide-narrow">Starts (alle ${fmtNum(interval)} h)</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      </div>
-      <div class="hint" style="margin-top:8px">Dauer 0 = an diesem Tag keine Bewässerung. Ist "Bis" früher als "Von", läuft das Fenster über Mitternacht.</div>`;
+      ${blocks}
+      <div class="hint" style="margin-top:8px">Dauer 0 = Fenster aus. Pro Fenster: erster Lauf bei "von", dann im Intervall, solange der Start vor "bis" liegt. Ist "bis" früher als "von", läuft das Fenster über Mitternacht.</div>`;
   }
 
   // One-line hints shown in the headers of collapsed cards.
@@ -872,9 +891,11 @@ class IrrigationSchedulerPanel extends HTMLElement {
     const mode = z.mode === "dynamic" ? "Dynamisch" : "Statisch";
     root.getElementById("settings-summary").textContent =
       `${mode}, Automatik ${z.auto_enabled ? "an" : "aus"}${this._settingsDirty ? ", ungespeichert" : ""}`;
-    const active = z.days.filter((d) => d.duration > 0).length;
+    const durations = (d) => (d.windows || [{ duration: d.duration }]).map((w) => w.duration > 0);
+    const active = z.days.filter((d) => durations(d).some(Boolean)).length;
+    const afternoons = z.days.filter((d) => durations(d)[1]).length;
     root.getElementById("week-summary").textContent =
-      `${active} ${active === 1 ? "Tag" : "Tage"} aktiv, alle ${fmtNum(z.options.interval_hours)} h`;
+      `${active} ${active === 1 ? "Tag" : "Tage"} aktiv${afternoons ? `, Nachmittag an ${afternoons}` : ""}`;
   }
 
   _renderUpcoming(z) {
@@ -894,6 +915,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
         (u) => `<tr class="${u.skipped ? "skipped" : ""}">
           <td>${fmtDate(u.time)}</td>
           <td>${fmtTime(u.time)}</td>
+          <td class="hide-narrow">${WINDOW_NAMES[u.window || 0]}</td>
           <td class="num">${fmtNum(u.duration)} min</td>
           <td class="num">${
             u.skipped
@@ -905,7 +927,7 @@ class IrrigationSchedulerPanel extends HTMLElement {
       .join("");
     el.innerHTML = `
       <div class="scroll" style="max-height:320px"><table>
-        <thead><tr><th>Datum</th><th>Start</th><th class="num">Dauer</th><th></th></tr></thead>
+        <thead><tr><th>Datum</th><th>Start</th><th class="hide-narrow">Fenster</th><th class="num">Dauer</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
       <div class="hint" style="margin-top:8px">Nächste 7 Tage${skipped ? `, ${skipped} übersprungen` : ""}. Übersprungene Läufe erscheinen im Verlauf.${

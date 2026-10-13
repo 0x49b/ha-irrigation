@@ -209,3 +209,27 @@ def test_upcoming_matches_compute_next_run():
     for hour in range(24):
         now = dt(1, hour, 30)
         assert logic.upcoming_slots(now, win, 5, 7)[0] == logic.compute_next_run(now, win, 5)
+
+
+def test_plan_slots_two_windows_with_own_intervals():
+    # Wednesday: morning 05-08 every 1h, afternoon 17-21 every 2h; Thursday morning only.
+    plan = {
+        2: [(time(5), time(8), 1), (time(17), time(21), 2)],
+        3: [(time(5), time(8), 1), None],
+    }
+    slots = logic.plan_slots(dt(1, 4), plan, 1.2)
+    assert slots == [
+        (dt(1, 5), 2, 0), (dt(1, 6), 2, 0), (dt(1, 7), 2, 0),
+        (dt(1, 17), 2, 1), (dt(1, 19), 2, 1),
+        (dt(2, 5), 3, 0), (dt(2, 6), 3, 0), (dt(2, 7), 3, 0),
+    ]
+
+
+def test_plan_slots_overlap_kept_once_for_first_window():
+    plan = {2: [(time(6), time(12), 3), (time(9), time(13), 3)]}
+    assert logic.plan_slots(dt(1, 0), plan, 0.6) == [(dt(1, 6), 2, 0), (dt(1, 9), 2, 0), (dt(1, 12), 2, 1)]
+
+
+def test_plan_slots_invalid_interval():
+    with pytest.raises(ValueError):
+        logic.plan_slots(dt(1, 0), {2: [(time(6), time(12), 0)]}, 1)

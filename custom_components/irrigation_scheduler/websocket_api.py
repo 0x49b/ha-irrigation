@@ -36,6 +36,8 @@ from .const import (
     MODES,
     SIGNAL_UPDATE,
     WEEKDAYS,
+    WINDOW_MORNING,
+    WINDOWS,
 )
 from .controller import IrrigationController
 
@@ -128,25 +130,32 @@ def ws_subscribe(
         vol.Required("type"): f"{DOMAIN}/set_day",
         vol.Required("entry_id"): str,
         vol.Required("day"): vol.In(WEEKDAYS),
+        vol.Optional("window", default=WINDOW_MORNING): vol.In(WINDOWS),
         vol.Optional("duration"): vol.All(vol.Coerce(float), vol.Range(min=0, max=MAX_DURATION_MIN)),
         vol.Optional("start"): _TIME,
         vol.Optional("end"): _TIME,
+        vol.Optional("interval"): vol.All(vol.Coerce(float), vol.Range(min=0.25, max=24)),
     }
 )
 @websocket_api.require_admin
-@callback
-def ws_set_day(
+@websocket_api.async_response
+async def ws_set_day(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
     if not (controller := _get_controller(hass, connection, msg)):
         return
-    day = msg["day"]
-    if "duration" in msg:
-        controller.durations[day] = msg["duration"]
-    if "start" in msg:
-        controller.windows[day][0] = msg["start"]
-    if "end" in msg:
-        controller.windows[day][1] = msg["end"]
+    day, window = msg["day"], msg["window"]
+    values = {key: msg[key] for key in ("duration", "start", "end", "interval") if key in msg}
+    if window == WINDOW_MORNING:
+        # Duration and times of the morning window are backed by entities.
+        if "duration" in values:
+            controller.durations[day] = values.pop("duration")
+        if "start" in values:
+            controller.windows[day][0] = values.pop("start")
+        if "end" in values:
+            controller.windows[day][1] = values.pop("end")
+    if values:
+        await controller.async_set_window(day, window, **values)
     controller.async_schedule_changed()
     connection.send_result(msg["id"])
 
