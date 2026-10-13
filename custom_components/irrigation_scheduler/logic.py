@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from itertools import pairwise
@@ -59,28 +59,50 @@ def compute_next_run(
     return best
 
 
+# One watering window: (start, end, interval in hours), or None if disabled.
+Window = tuple[time, time, float] | None
+
+
+def plan_slots(
+    now: datetime,
+    plan: Mapping[int, Sequence[Window]],
+    days: float,
+) -> list[tuple[datetime, int, int]]:
+    """All slots in (now, now + days], sorted, as (slot, weekday, window index).
+
+    `plan` maps weekday (0 = Monday) to its windows; each window has its own
+    interval. A slot produced by two overlapping windows is kept once, for the
+    first window.
+    """
+    horizon = now + timedelta(days=days)
+    today = now.date()
+    found: dict[datetime, tuple[int, int]] = {}
+    # Start one day back to catch windows that run past midnight.
+    for delta in range(-1, int(days) + 2):
+        day = today + timedelta(days=delta)
+        for index, window in enumerate(plan.get(day.weekday(), ())):
+            if window is None:
+                continue
+            start, end, interval_hours = window
+            if interval_hours <= 0:
+                raise ValueError("interval_hours must be positive")
+            for slot in window_slots(day, start, end, timedelta(hours=interval_hours), now.tzinfo):
+                if now < slot <= horizon:
+                    found.setdefault(slot, (day.weekday(), index))
+    return [(slot, *found[slot]) for slot in sorted(found)]
+
+
 def upcoming_slots(
     now: datetime,
     windows: Mapping[int, tuple[time, time]],
     interval_hours: float,
     days: float,
 ) -> list[tuple[datetime, int]]:
-    """All slots in (now, now + days], sorted, with the weekday whose window they belong to."""
+    """All slots in (now, now + days] for one window per day with a common interval."""
     if interval_hours <= 0:
         raise ValueError("interval_hours must be positive")
-    interval = timedelta(hours=interval_hours)
-    horizon = now + timedelta(days=days)
-    today = now.date()
-    slots = [
-        (slot, day.weekday())
-        # Start one day back to catch windows that run past midnight.
-        for delta in range(-1, int(days) + 2)
-        for day in [today + timedelta(days=delta)]
-        if day.weekday() in windows
-        for slot in window_slots(day, *windows[day.weekday()], interval, now.tzinfo)
-        if now < slot <= horizon
-    ]
-    return sorted(slots)
+    plan = {weekday: [(start, end, interval_hours)] for weekday, (start, end) in windows.items()}
+    return [(slot, weekday) for slot, weekday, _ in plan_slots(now, plan, days)]
 
 
 @dataclass(frozen=True)

@@ -40,6 +40,7 @@ from .const import (
     CONF_WATER_ENTITY,
     CONF_WATER_PRICE,
     CONF_WEATHER_ENTITY,
+    DEFAULT_AFTERNOON,
     DEFAULT_DURATION_MIN,
     DEFAULT_WASTEWATER_ENABLED,
     DEFAULT_WASTEWATER_PRICE,
@@ -70,14 +71,16 @@ from .const import (
     STATUS_WATERING,
     UPCOMING_DAYS,
     WEEKDAYS,
+    WINDOW_AFTERNOON,
+    WINDOW_MORNING,
 )
 from .logic import (
     RainAssessment,
     assess_rain,
     average,
+    plan_slots,
     postpone_target,
     rained_recently,
-    upcoming_slots,
     water_cost,
     window_end_for_slot,
 )
@@ -105,22 +108,27 @@ class IrrigationController:
             dt_util.parse_time(DEFAULT_WINDOW_END),
         )
         self.windows: dict[str, list[time]] = {d: list(default_window) for d in WEEKDAYS}
+        # Morning interval per day (None = global interval option).
+        self.morning_interval: dict[str, float | None] = dict.fromkeys(WEEKDAYS)
+        # Afternoon window per day: start/end (time), interval (h), duration (min).
+        self.afternoon: dict[str, dict[str, Any]] = {d: _afternoon_default() for d in WEEKDAYS}
         self.auto_enabled = True
         self.rain_check_enabled = True
 
         self.status = STATUS_IDLE
         self.next_run: datetime | None = None
         self.next_run_day: str | None = None
+        self.next_run_window: int = WINDOW_MORNING
         self.last_run: datetime | None = None
         self.run_end: datetime | None = None
         self.rain: RainAssessment | None = None
         # Dynamic mode: forecast for the next minutes and result of the last check.
         self.rain_next: RainAssessment | None = None
         self.last_check: dict[str, Any] | None = None
-        # (start, weekday, window end) of a run moved by the dynamic rain check.
-        self._postponed: tuple[datetime, str, datetime] | None = None
-        # Slots the user chose to skip: UTC ISO timestamp -> weekday of its window.
-        self.skipped_slots: dict[str, str] = {}
+        # (start, weekday, window end, window index) of a run moved by the dynamic rain check.
+        self._postponed: tuple[datetime, str, datetime, int] | None = None
+        # Slots the user chose to skip: UTC ISO timestamp -> [weekday, window index].
+        self.skipped_slots: dict[str, list[Any]] = {}
         self.history: list[dict[str, Any]] = []
         self._current: dict[str, Any] | None = None
         self.water_total_l = 0.0
@@ -186,11 +194,26 @@ class IrrigationController:
         return self.run_end is not None
 
     def duration_for(self, when: datetime) -> float:
-        return self.durations[WEEKDAYS[when.weekday()]]
+        """Duration for a manual run: the morning's, or the afternoon's if the morning is off."""
+        day = WEEKDAYS[when.weekday()]
+        return self.durations[day] or self.window_duration(day, WINDOW_AFTERNOON)
+
+    def window(self, day: str, index: int) -> tuple[time, time, float, float]:
+        """(start, end, interval hours, duration minutes) of a day's window."""
+        if index == WINDOW_AFTERNOON:
+            w = self.afternoon[day]
+            return w["start"], w["end"], float(w["interval"]), float(w["duration"])
+        interval = self.morning_interval[day] or float(self.config[CONF_INTERVAL_HOURS])
+        return self.windows[day][0], self.windows[day][1], float(interval), self.durations[day]
+
+    def window_duration(self, day: str, index: int) -> float:
+        return self.window(day, index)[3]
 
     @property
     def next_run_duration(self) -> float | None:
-        return self.durations[self.next_run_day] if self.next_run_day else None
+        if not self.next_run_day:
+            return None
+        return self.window_duration(self.next_run_day, self.next_run_window)
 
     def as_dict(self) -> dict[str, Any]:
         """Serializable snapshot for the frontend panel."""
@@ -222,6 +245,18 @@ class IrrigationController:
             "days": [
                 {
                     "day": day,
+                    "windows": [
+                        {
+                            "start": start.strftime("%H:%M"),
+                            "end": end.strftime("%H:%M"),
+                            "interval": interval,
+                            "duration": duration,
+                        }
+                        for start, end, interval, duration in (
+                            self.window(day, i) for i in (WINDOW_MORNING, WINDOW_AFTERNOON)
+                        )
+                    ],
+                    # Kept for older panel versions: the morning window.
                     "duration": self.durations[day],
                     "start": self.windows[day][0].strftime("%H:%M"),
                     "end": self.windows[day][1].strftime("%H:%M"),
@@ -250,10 +285,11 @@ class IrrigationController:
                 {
                     "time": slot.isoformat(),
                     "day": day,
-                    "duration": self.durations[day],
+                    "window": index,
+                    "duration": self.window_duration(day, index),
                     "skipped": _slot_key(slot) in self.skipped_slots,
                 }
-                for slot, day in self._upcoming(UPCOMING_DAYS)
+                for slot, day, index in self._upcoming(UPCOMING_DAYS)
             ],
             "water_entity": self.water_entity,
             "water_total_l": self.water_total_l if self._water else None,
@@ -291,12 +327,30 @@ class IrrigationController:
         self.cost_total = stored.get("cost_total") or 0.0
         self.last_cost = stored.get("last_cost")
         self.last_check = stored.get("last_check")
-        self.skipped_slots = stored.get("skipped_slots") or {}
+        # Older versions stored only the weekday (morning window).
+        self.skipped_slots = {
+            key: value if isinstance(value, list) else [value, WINDOW_MORNING]
+            for key, value in (stored.get("skipped_slots") or {}).items()
+        }
         if postponed := stored.get("postponed"):
-            start, day, window_end = postponed
+            start, day, window_end, *index = postponed
             self._postponed = (
-                dt_util.parse_datetime(start), day, dt_util.parse_datetime(window_end)
+                dt_util.parse_datetime(start),
+                day,
+                dt_util.parse_datetime(window_end),
+                index[0] if index else WINDOW_MORNING,
             )
+        for day, plan in (stored.get("plan") or {}).items():
+            if day not in self.afternoon:
+                continue
+            self.morning_interval[day] = plan.get("morning_interval")
+            if afternoon := plan.get("afternoon"):
+                self.afternoon[day] = {
+                    "start": dt_util.parse_time(afternoon["start"]),
+                    "end": dt_util.parse_time(afternoon["end"]),
+                    "interval": float(afternoon["interval"]),
+                    "duration": float(afternoon["duration"]),
+                }
         if self.history and self.history[-1].get("end") is None:
             self._current = self.history[-1]
             if self._water:
@@ -356,7 +410,7 @@ class IrrigationController:
             self._unsub_schedule = None
         self._log_passed_skips()
         if self._postponed and self._postponed[0] > dt_util.now():
-            self.next_run, self.next_run_day, _ = self._postponed
+            self.next_run, self.next_run_day, _, self.next_run_window = self._postponed
             self._unsub_schedule = async_track_point_in_time(
                 self.hass, self._async_scheduled_run, self.next_run
             )
@@ -367,41 +421,53 @@ class IrrigationController:
         if result is None:
             self.next_run = self.next_run_day = None
         else:
-            self.next_run, self.next_run_day = result
+            self.next_run, self.next_run_day, self.next_run_window = result
             self._unsub_schedule = async_track_point_in_time(
                 self.hass, self._async_scheduled_run, self.next_run
             )
         self.async_notify()
 
-    def _upcoming(self, days: float) -> list[tuple[datetime, str]]:
-        # Days without a duration get no slots at all.
-        windows = {
-            i: tuple(self.windows[day])
-            for i, day in enumerate(WEEKDAYS)
-            if self.durations[day] > 0
-        }
-        slots = upcoming_slots(
-            dt_util.now(), windows, float(self.config[CONF_INTERVAL_HOURS]), days
-        )
-        return [(slot, WEEKDAYS[weekday]) for slot, weekday in slots]
+    def _upcoming(self, days: float) -> list[tuple[datetime, str, int]]:
+        """Upcoming slots as (slot, weekday, window index)."""
+        plan = {}
+        for weekday, day in enumerate(WEEKDAYS):
+            windows = []
+            for index in (WINDOW_MORNING, WINDOW_AFTERNOON):
+                start, end, interval, duration = self.window(day, index)
+                # Windows without a duration get no slots at all.
+                windows.append((start, end, interval) if duration > 0 else None)
+            plan[weekday] = windows
+        return [
+            (slot, WEEKDAYS[weekday], index)
+            for slot, weekday, index in plan_slots(dt_util.now(), plan, days)
+        ]
 
-    def _next_regular_slot(self) -> tuple[datetime, str] | None:
+    def _next_regular_slot(self) -> tuple[datetime, str, int] | None:
         """Next slot that the user didn't skip."""
-        for slot, day in self._upcoming(UPCOMING_DAYS + 1):
+        for slot, day, index in self._upcoming(UPCOMING_DAYS + 1):
             if _slot_key(slot) not in self.skipped_slots:
-                return slot, day
+                return slot, day, index
         return None
+
+    async def async_set_window(self, day: str, index: int, **values: Any) -> None:
+        """Change interval (morning) or any field (afternoon) of a window not backed by entities."""
+        if index == WINDOW_MORNING:
+            if "interval" in values:
+                self.morning_interval[day] = values["interval"]
+        else:
+            self.afternoon[day].update(values)
+        await self._async_save()
 
     async def async_set_skip(self, slot: datetime, skip: bool) -> bool:
         """Skip or un-skip an upcoming slot. Returns False if `slot` isn't one."""
         key = _slot_key(slot)
-        day = next(
-            (d for s, d in self._upcoming(UPCOMING_DAYS + 1) if _slot_key(s) == key), None
+        match = next(
+            ([d, i] for s, d, i in self._upcoming(UPCOMING_DAYS + 1) if _slot_key(s) == key), None
         )
-        if day is None:
+        if match is None:
             return False
         if skip:
-            self.skipped_slots[key] = day
+            self.skipped_slots[key] = match
         else:
             self.skipped_slots.pop(key, None)
         await self._async_save()
@@ -415,27 +481,28 @@ class IrrigationController:
             slot = dt_util.parse_datetime(key)
             if slot is None or slot > now:
                 continue
-            day = self.skipped_slots.pop(key)
+            day, index = self.skipped_slots.pop(key)
             local = dt_util.as_local(slot)
-            self._add_history(local, SOURCE_AUTO, RESULT_SKIPPED_MANUAL, self.durations[day], end=local)
+            self._add_history(
+                local, SOURCE_AUTO, RESULT_SKIPPED_MANUAL, self.window_duration(day, index), end=local
+            )
 
     async def _async_scheduled_run(self, _now: datetime) -> None:
         self._unsub_schedule = None
         # Earlier skipped slots go into the history before this run's entry.
         self._log_passed_skips()
-        slot, day = self.next_run, self.next_run_day
+        slot, day, index = self.next_run, self.next_run_day, self.next_run_window
         postponed, self._postponed = self._postponed, None
         try:
             if not (self.auto_enabled and day and slot):
                 return
             if self.mode == MODE_DYNAMIC:
-                window_end = (
-                    postponed[2] if postponed else window_end_for_slot(slot, *self.windows[day])
-                )
-                await self._async_dynamic_run(day, window_end)
+                start, end, _, _ = self.window(day, index)
+                window_end = postponed[2] if postponed else window_end_for_slot(slot, start, end)
+                await self._async_dynamic_run(day, index, window_end)
             else:
                 await self.async_run(
-                    duration_min=self.durations[day],
+                    duration_min=self.window_duration(day, index),
                     check_rain=self.rain_check_enabled,
                     source=SOURCE_AUTO,
                 )
@@ -444,9 +511,9 @@ class IrrigationController:
 
     # -------------------------------------------------------------- dynamic
 
-    async def _async_dynamic_run(self, day: str, window_end: datetime) -> None:
+    async def _async_dynamic_run(self, day: str, index: int, window_end: datetime) -> None:
         """Check soil and rain right before a scheduled run, then run, postpone or skip."""
-        duration = self.durations[day]
+        duration = self.window_duration(day, index)
         now = dt_util.now()
         check = await self._async_dynamic_check(now)
         self.last_check = check
@@ -469,7 +536,7 @@ class IrrigationController:
             )
             if target is not None:
                 _LOGGER.info("Rain around the slot, postponing irrigation to %s", target)
-                self._postponed = (target, day, window_end)
+                self._postponed = (target, day, window_end, index)
                 self._skip(now, STATUS_POSTPONED, duration, check)
             else:
                 _LOGGER.info("Rain around the slot and no time left in the window, skipping")
@@ -724,10 +791,26 @@ class IrrigationController:
                 "last_check": self.last_check,
                 "skipped_slots": self.skipped_slots,
                 "postponed": (
-                    [self._postponed[0].isoformat(), self._postponed[1], self._postponed[2].isoformat()]
+                    [
+                        self._postponed[0].isoformat(),
+                        self._postponed[1],
+                        self._postponed[2].isoformat(),
+                        self._postponed[3],
+                    ]
                     if self._postponed
                     else None
                 ),
+                "plan": {
+                    day: {
+                        "morning_interval": self.morning_interval[day],
+                        "afternoon": {
+                            **self.afternoon[day],
+                            "start": self.afternoon[day]["start"].strftime("%H:%M"),
+                            "end": self.afternoon[day]["end"].strftime("%H:%M"),
+                        },
+                    }
+                    for day in WEEKDAYS
+                },
             }
         )
 
@@ -797,3 +880,11 @@ def _float_state(hass: HomeAssistant, entity_id: str) -> float | None:
 
 def _slot_key(slot: datetime) -> str:
     return dt_util.as_utc(slot).isoformat()
+
+
+def _afternoon_default() -> dict[str, Any]:
+    return {
+        **DEFAULT_AFTERNOON,
+        "start": dt_util.parse_time(DEFAULT_AFTERNOON["start"]),
+        "end": dt_util.parse_time(DEFAULT_AFTERNOON["end"]),
+    }

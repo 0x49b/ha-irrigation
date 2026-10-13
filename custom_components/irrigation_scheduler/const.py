@@ -82,6 +82,13 @@ RESULT_ERROR = "error"
 RESULT_SKIPPED_MANUAL = "skipped_manual"
 UPCOMING_DAYS = 7
 
+# Two watering windows per day. The morning window is backed by the duration/
+# time entities, the afternoon window lives in the store (panel only).
+WINDOW_MORNING = 0
+WINDOW_AFTERNOON = 1
+WINDOWS = (WINDOW_MORNING, WINDOW_AFTERNOON)
+DEFAULT_AFTERNOON = {"start": "17:00", "end": "21:00", "interval": 2.0, "duration": 0.0}
+
 SIGNAL_UPDATE = f"{DOMAIN}_update"
 
 PANEL_URL = "irrigation"
