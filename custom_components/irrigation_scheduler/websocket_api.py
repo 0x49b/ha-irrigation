@@ -81,6 +81,8 @@ def async_register(hass: HomeAssistant) -> None:
         ws_stop,
         ws_recalculate_costs,
         ws_set_skip,
+        ws_add_single_run,
+        ws_remove_single_run,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -269,5 +271,46 @@ async def ws_set_skip(
         return
     if not await controller.async_set_skip(msg["slot"], msg["skip"]):
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "No upcoming run at this time")
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/add_single_run",
+        vol.Required("entry_id"): str,
+        # Without an offset the time is taken in Home Assistant's time zone.
+        vol.Required("time"): cv.datetime,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_add_single_run(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    if not (controller := _get_controller(hass, connection, msg)):
+        return
+    if not await controller.async_add_single_run(msg["time"]):
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Time is in the past")
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/remove_single_run",
+        vol.Required("entry_id"): str,
+        vol.Required("time"): cv.datetime,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_remove_single_run(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    if not (controller := _get_controller(hass, connection, msg)):
+        return
+    if not await controller.async_remove_single_run(msg["time"]):
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "No one-off run at this time")
         return
     connection.send_result(msg["id"])
