@@ -33,8 +33,9 @@ const RESULT = {
   skipped_moisture: "Übersprungen (Boden feucht)",
   skipped_manual: "Übersprungen (manuell)",
 };
-const SOURCE = { auto: "Automatik", manual: "Manuell" };
-const WINDOW_NAMES = ["Morgen", "Nachmittag"];
+const SOURCE = { auto: "Automatik", manual: "Manuell", single: "Einzellauf" };
+const WINDOW_NAMES = ["Morgen", "Nachmittag", "Einzellauf"];
+const WINDOW_SINGLE = 2;
 
 const CHART_DAYS = 30;
 
@@ -225,7 +226,12 @@ const STYLE = `
   tr.today td:first-child { font-weight: 600; color: var(--primary-color); }
   tr.off td { color: var(--secondary-text-color); }
   tr.skipped td:not(:last-child) { color: var(--secondary-text-color); text-decoration: line-through; }
-  #upcoming button { padding: 4px 10px; font-size: 13px; }
+  #upcoming button, #singles button { padding: 4px 10px; font-size: 13px; }
+  h3.sub { margin: 4px 0 0; font-size: 14px; font-weight: 500; color: var(--secondary-text-color); }
+  #singles-form { margin-top: 8px; margin-bottom: 8px; }
+  #singles ul { list-style: none; margin: 0 0 12px; padding: 0; }
+  #singles li { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--divider-color, #e0e0e0); }
+  #singles li .when { flex: 1; }
   .slots { color: var(--secondary-text-color); font-size: 13px; }
   #week .day { padding: 8px 0; border-bottom: 1px solid var(--divider-color, #e0e0e0); }
   #week .day-name { font-weight: 500; margin-bottom: 4px; }
@@ -396,6 +402,12 @@ class IrrigationSchedulerPanel extends HTMLElement {
           <div class="card" style="margin-top:16px">
             <details class="collapse card-collapse" id="upcoming-details">
               <summary><h2>Geplante Läufe</h2><span class="summary-hint" id="upcoming-summary"></span></summary>
+              <h3 class="sub">Einzelläufe</h3>
+              <div class="row" id="singles-form">
+                <input id="single-time" type="datetime-local">
+                <button id="single-add">Hinzufügen</button>
+              </div>
+              <div id="singles"></div>
               <div id="upcoming"></div>
             </details>
           </div>
@@ -429,12 +441,47 @@ class IrrigationSchedulerPanel extends HTMLElement {
       if (ev.target.open && this._zone) this._renderHistory(this._zone);
     });
 
+    const removeSingle = async (ev) => {
+      const time = ev.target.dataset?.remove;
+      if (!time) return false;
+      ev.target.disabled = true;
+      try {
+        await this._ws("remove_single_run", { time });
+      } finally {
+        ev.target.disabled = false;
+      }
+      return true;
+    };
+
     $("upcoming").addEventListener("click", async (ev) => {
+      if (await removeSingle(ev)) return;
       const { slot, skip } = ev.target.dataset || {};
       if (!slot) return;
       ev.target.disabled = true;
       try {
         await this._ws("set_skip", { slot, skip: skip === "1" });
+      } finally {
+        ev.target.disabled = false;
+      }
+    });
+
+    $("singles").addEventListener("click", removeSingle);
+
+    // Default: next full hour, as local "YYYY-MM-DDTHH:MM" for the datetime-local input.
+    const nextHour = new Date(Date.now() + 3600e3);
+    nextHour.setMinutes(0, 0, 0);
+    const pad = (n) => String(n).padStart(2, "0");
+    $("single-time").value = `${nextHour.getFullYear()}-${pad(nextHour.getMonth() + 1)}-${pad(nextHour.getDate())}T${pad(nextHour.getHours())}:${pad(nextHour.getMinutes())}`;
+    $("single-add").addEventListener("click", async (ev) => {
+      const time = $("single-time").value;
+      if (!time) return;
+      if (new Date(time) <= new Date()) {
+        alert("Der Zeitpunkt liegt in der Vergangenheit.");
+        return;
+      }
+      ev.target.disabled = true;
+      try {
+        await this._ws("add_single_run", { time });
       } finally {
         ev.target.disabled = false;
       }
@@ -898,7 +945,26 @@ class IrrigationSchedulerPanel extends HTMLElement {
       `${active} ${active === 1 ? "Tag" : "Tage"} aktiv${afternoons ? `, Nachmittag an ${afternoons}` : ""}`;
   }
 
+  _renderSingles(z) {
+    const singles = z.single_runs || [];
+    const el = this.shadowRoot.getElementById("singles");
+    if (!singles.length) {
+      el.innerHTML = `<div class="hint" style="margin-bottom:12px">Keine Einzelläufe geplant. Dauer: die des Wochentags (Morgen, sonst Nachmittag).</div>`;
+      return;
+    }
+    el.innerHTML = `<ul>${singles
+      .map(
+        (s) => `<li>
+          <span class="when">${fmtDate(s.time)} ${fmtTime(s.time)}</span>
+          <span class="num">${s.duration ? `${fmtNum(s.duration)} min` : "keine Dauer"}</span>
+          <button data-remove="${esc(s.time)}">Entfernen</button>
+        </li>`,
+      )
+      .join("")}</ul>`;
+  }
+
   _renderUpcoming(z) {
+    this._renderSingles(z);
     const list = z.upcoming || [];
     const el = this.shadowRoot.getElementById("upcoming");
     const skippedCount = list.filter((u) => u.skipped).length;
@@ -918,7 +984,9 @@ class IrrigationSchedulerPanel extends HTMLElement {
           <td class="hide-narrow">${WINDOW_NAMES[u.window || 0]}</td>
           <td class="num">${fmtNum(u.duration)} min</td>
           <td class="num">${
-            u.skipped
+            u.window === WINDOW_SINGLE
+              ? `<button data-remove="${esc(u.time)}">Entfernen</button>`
+              : u.skipped
               ? `<button data-slot="${esc(u.time)}" data-skip="0">Rückgängig</button>`
               : `<button data-slot="${esc(u.time)}" data-skip="1">Überspringen</button>`
           }</td>

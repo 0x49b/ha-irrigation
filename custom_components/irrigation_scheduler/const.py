@@ -76,6 +76,7 @@ RAIN_RATE_UNITS = frozenset({"mm/h", "in/h", "mm/d", "in/d"})
 HISTORY_DAYS = 90
 SOURCE_AUTO = "auto"
 SOURCE_MANUAL = "manual"
+SOURCE_SINGLE = "single"
 RESULT_COMPLETED = "completed"
 RESULT_STOPPED = "stopped"
 RESULT_ERROR = "error"
@@ -87,6 +88,8 @@ UPCOMING_DAYS = 7
 WINDOW_MORNING = 0
 WINDOW_AFTERNOON = 1
 WINDOWS = (WINDOW_MORNING, WINDOW_AFTERNOON)
+# One-off runs planned for a date and time (duration of that weekday).
+WINDOW_SINGLE = 2
 DEFAULT_AFTERNOON = {"start": "17:00", "end": "21:00", "interval": 2.0, "duration": 0.0}
 
 SIGNAL_UPDATE = f"{DOMAIN}_update"

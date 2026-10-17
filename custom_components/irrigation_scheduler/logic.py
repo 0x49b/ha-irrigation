@@ -197,6 +197,32 @@ def rained_recently(kind: str, values: Iterable[Any], rainy: frozenset[str] = fr
     return any(b > a for a, b in pairwise(numbers))
 
 
+def merge_single_runs(
+    slots: Sequence[tuple[datetime, int, int]],
+    singles: Iterable[datetime],
+    now: datetime,
+    horizon: datetime | None,
+    index: int,
+) -> list[tuple[datetime, int, int]]:
+    """Add one-off runs in (now, horizon] to `slots` (sorted).
+
+    A one-off run at the time of a regular slot replaces it; it runs once.
+    `horizon` None means no upper limit.
+    """
+    extra = {
+        single: (single, single.weekday(), index)
+        for single in singles
+        if now < single and (horizon is None or single <= horizon)
+    }
+    regular = [s for s in slots if s[0] not in extra]
+    return sorted([*regular, *extra.values()], key=lambda s: s[0])
+
+
+def end_of_day(when: datetime) -> datetime:
+    """Midnight after `when`."""
+    return datetime.combine(when.date() + ONE_DAY, time(), tzinfo=when.tzinfo)
+
+
 def window_end_for_slot(slot: datetime, start: time, end: time) -> datetime:
     """End of the watering window that contains `slot`.
 

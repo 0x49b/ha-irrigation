@@ -233,3 +233,32 @@ def test_plan_slots_overlap_kept_once_for_first_window():
 def test_plan_slots_invalid_interval():
     with pytest.raises(ValueError):
         logic.plan_slots(dt(1, 0), {2: [(time(6), time(12), 0)]}, 1)
+
+
+def test_merge_single_runs_adds_sorted_within_horizon():
+    now = dt(6, 12)
+    slots = [(dt(6, 18), 0, 0), (dt(7, 7), 1, 0)]
+    singles = [dt(6, 16), dt(7, 14), dt(6, 10), dt(20, 9)]
+    merged = logic.merge_single_runs(slots, singles, now, dt(8, 0), 2)
+    assert merged == [
+        (dt(6, 16), 0, 2),
+        (dt(6, 18), 0, 0),
+        (dt(7, 7), 1, 0),
+        (dt(7, 14), 1, 2),
+    ]
+
+
+def test_merge_single_runs_without_horizon():
+    now = dt(6, 12)
+    merged = logic.merge_single_runs([], [dt(20, 9)], now, None, 2)
+    assert merged == [(dt(20, 9), dt(20, 9).weekday(), 2)]
+
+
+def test_merge_single_run_replaces_regular_slot():
+    now = dt(6, 12)
+    merged = logic.merge_single_runs([(dt(6, 18), 0, 0)], [dt(6, 18)], now, None, 2)
+    assert merged == [(dt(6, 18), 0, 2)]
+
+
+def test_end_of_day():
+    assert logic.end_of_day(dt(6, 16, 30)) == dt(7, 0)
